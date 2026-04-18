@@ -20,7 +20,7 @@ fun NavGraph() {
             )
         }
         composable(Screen.Chat.route) {
-            ChatScreen()
+            ChatScreen(onBack = { navController.popBackStack() })
         }
     }
 }

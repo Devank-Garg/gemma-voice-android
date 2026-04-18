@@ -1,8 +1,9 @@
 plugins {
     alias(libs.plugins.android.application)
-    alias(libs.plugins.kotlin.android)
+
     alias(libs.plugins.kotlin.compose)
-    alias(libs.plugins.kotlin.kapt)
+    alias(libs.plugins.kotlin.android)
+    alias(libs.plugins.ksp)
     alias(libs.plugins.hilt.android)
 }
 
@@ -29,11 +30,21 @@ android {
         }
     }
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_11
-        targetCompatibility = JavaVersion.VERSION_11
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
     }
-    kotlinOptions {
-        jvmTarget = "11"
+
+// Modern way for Kotlin 2.0+
+// If 'compilerOptions' is unresolved, ensure your Kotlin plugin
+// in the root build.gradle is version 2.1.0 or higher.
+    kotlin {
+        compilerOptions {
+            jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+            freeCompilerArgs.addAll(
+                "-Xskip-metadata-version-check",
+                "-Xsam-conversions=class"
+            )
+        }
     }
     buildFeatures {
         compose = true
@@ -65,11 +76,11 @@ dependencies {
 
     // Hilt
     implementation(libs.hilt.android)
-    kapt(libs.hilt.android.compiler)
+    ksp(libs.hilt.android.compiler)
     implementation(libs.hilt.navigation.compose)
     // Hilt + WorkManager
     implementation(libs.hilt.work)
-    kapt(libs.hilt.ext.compiler)
+    ksp(libs.hilt.ext.compiler)
 
     // WorkManager
     implementation(libs.work.runtime.ktx)
@@ -86,9 +97,8 @@ dependencies {
     // ONNX Runtime — Kokoro TTS (Sprint 4)
     implementation(libs.onnxruntime.android)
 
-    // TODO Sprint 3: add LiteRT-LM once artifact is stable on Maven
-    //   implementation("com.google.ai.edge.litertlm:litertlm-android:1.0.0-alpha04")
-    //   implementation("com.google.ai.edge.litert:litert-gpu:1.0.0-alpha1")  // confirm version from Google Maven
+    // LiteRT-LM — on-device LLM inference
+    implementation(libs.litertlm.android)
 
     // TODO Phase 2: add LiveKit for server-side agent pipeline
     //   implementation("io.livekit:livekit-android:2.24.1")

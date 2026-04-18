@@ -35,7 +35,7 @@ AudioTrack playback
 | UI | Jetpack Compose + Navigation Compose |
 | DI | Hilt |
 | Async | Kotlin Coroutines + Flow |
-| LLM Inference | LiteRT-LM `1.0.0-alpha04` |
+| LLM Inference | LiteRT-LM `0.10.2` |
 | TTS | Kokoro v1.0 via ONNX Runtime `1.18.0` |
 | Audio | Android AudioRecord / AudioTrack |
 | VAD | Energy + zero-crossing detector |
@@ -70,12 +70,13 @@ adb push gemma-4-E2B-it.litertlm \
 
 | Sprint | Status | Scope |
 |---|---|---|
-| 0 — Scaffold | ✅ Complete | Gradle, Hilt, NavGraph, permissions, folder structure |
+| 0 — Scaffold | ✅ Complete | Gradle, Hilt (KSP), NavGraph, permissions, folder structure |
 | 1 — Download | ✅ Complete | ModelDownloadWorker (resumable), SettingsRepository, Home UI |
-| 2 — Audio/VAD | ⏳ Next | AudioRecord, PcmBuffer, VoiceActivityDetector |
-| 3 — Inference | 🔲 Pending | LiteRtLmEngine, AudioTokenizer, GemmaVoiceSession |
+| 2 — Audio/VAD | ✅ Complete | AudioCaptureManager (16kHz PCM float), PcmBuffer, VoiceActivityDetector (energy VAD) |
+| 3 — Inference (text) | ✅ Complete | LiteRtLmEngine (GPU→CPU), text chat via LiteRT-LM 0.10.2, streaming Flow |
+| 3 — Inference (audio) | 🔲 Pending | AudioTokenizer, GemmaVoiceSession (connects VAD clip → engine) |
 | 4 — TTS | 🔲 Pending | KokoroEngine (ONNX), TtsSynthesizer streaming |
-| 5 — Integration | 🔲 Pending | ChatViewModel state machine, ChatScreen, end-to-end |
+| 5 — Chat UI | ✅ Complete | ChatScreen (full design), ChatViewModel state machine |
 | 6 — Polish | 🔲 Pending | Error handling, settings screen, OOM graceful fail |
 
 ---
@@ -89,18 +90,18 @@ com.example.gemmaapp/
 ├── di/
 │   └── AppModule.kt           — WorkManager, OkHttpClient providers
 ├── data/
-│   ├── model/                 ModelInfo.kt, DownloadState.kt
+│   ├── model/                 ModelInfo.kt, DownloadState.kt, ChatMessage.kt
 │   ├── repository/            ModelRepository.kt, SettingsRepository.kt
 │   └── download/              ModelDownloadWorker.kt, ChecksumVerifier.kt
-├── inference/                 LiteRtLmEngine, AudioTokenizer, GemmaVoiceSession, ModelSelector
-├── tts/                       KokoroEngine, TtsSynthesizer
-├── audio/                     AudioCaptureManager, VoiceActivityDetector, PcmBuffer, VadEvent
+├── inference/                 LiteRtLmEngine.kt ✅, AudioTokenizer (stub), GemmaVoiceSession (stub), ModelSelector
+├── tts/                       KokoroEngine (stub), TtsSynthesizer (stub)
+├── audio/                     AudioCaptureManager.kt ✅, VoiceActivityDetector.kt ✅, PcmBuffer.kt, VadEvent.kt
 └── ui/
     ├── Screen.kt + NavGraph.kt
     ├── home/                  HomeScreen + HomeViewModel (welcome + model status)
-    ├── chat/                  ChatScreen + ChatViewModel (Sprint 5)
-    ├── download/              DownloadScreen stub (merged into HomeScreen)
-    └── onboarding/            OnboardingScreen stub (merged into HomeScreen)
+    ├── chat/                  ChatScreen ✅ + ChatViewModel ✅ (text chat live, voice UI ready)
+    ├── download/              DownloadScreen stub
+    └── onboarding/            OnboardingScreen stub
 ```
 
 ---

@@ -1,6 +1,6 @@
 [versions]
 agp = "8.11.2"
-kotlin = "2.0.21"
+kotlin = "2.1.0"
 coreKtx = "1.13.1"
 junit = "4.13.2"
 junitVersion = "1.2.1"
@@ -11,13 +11,15 @@ lifecycleRuntimeCompose = "2.8.4"
 activityCompose = "1.9.2"
 composeBom = "2024.09.00"
 navigationCompose = "2.8.3"
-hilt = "2.51.1"
+hilt = "2.58"
 hiltExt = "1.2.0"
 workManager = "2.9.1"
 dataStore = "1.1.1"
 coroutines = "1.8.1"
 okhttp = "4.12.0"
 onnxruntime = "1.18.0"
+litertlm = "0.10.2"
+ksp = "2.1.0-1.0.29"
 
 [libraries]
 # AndroidX Core
@@ -55,14 +57,17 @@ kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-
 okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhttp" }
 # ONNX Runtime — Kokoro TTS
 onnxruntime-android = { group = "com.microsoft.onnxruntime", name = "onnxruntime-android", version.ref = "onnxruntime" }
+# LiteRT-LM — on-device LLM inference
+litertlm-android = { group = "com.google.ai.edge.litertlm", name = "litertlm-android", version.ref = "litertlm" }
 # Test
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 androidx-junit = { group = "androidx.test.ext", name = "junit", version.ref = "junitVersion" }
 androidx-espresso-core = { group = "androidx.test.espresso", name = "espresso-core", version.ref = "espressoCore" }
 
 [plugins]
+ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }
 android-application = { id = "com.android.application", version.ref = "agp" }
 kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
 kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
-kotlin-kapt = { id = "org.jetbrains.kotlin.kapt", version.ref = "kotlin" }
+#kotlin-kapt = { id = "org.jetbrains.kotlin.kapt", version.ref = "kotlin" }
 hilt-android = { id = "com.google.dagger.hilt.android", version.ref = "hilt" }

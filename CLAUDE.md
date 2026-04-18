@@ -95,7 +95,7 @@ HomeScreen handles both welcome UX and model download/status in one screen.
 - Material Icons Extended dependency added — use `Icons.Default.*` freely
 
 ## Known Issues / TODOs
-- LiteRT-LM (`litertlm-android:1.0.0-alpha04`) commented out in build.gradle.kts — add back in Sprint 3 once verified on Maven
+- LiteRT-LM `litertlm-android:0.10.2` added to build.gradle.kts (latest as of April 2026; versions are `0.x.x`, NOT `1.0.0-alpha04`)
 - LiveKit (`livekit-android:2.24.1`) commented out — Phase 2 only
 - WorkManager download UI works but in-app download needs real-device testing
 - `DownloadScreen.kt` and `OnboardingScreen.kt` stubs kept but not wired into NavGraph

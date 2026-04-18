@@ -31,6 +31,10 @@
             </intent-filter>
         </activity>
 
+        <!-- GPU acceleration for LiteRT-LM inference -->
+        <uses-native-library android:name="libvndksupport.so" android:required="false"/>
+        <uses-native-library android:name="libOpenCL.so" android:required="false"/>
+
         <!-- Disable default WorkManager auto-init so we can provide HiltWorkerFactory -->
         <provider
             android:name="androidx.startup.InitializationProvider"
