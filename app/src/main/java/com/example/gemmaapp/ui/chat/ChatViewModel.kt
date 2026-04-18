@@ -41,6 +41,7 @@ class ChatViewModel @Inject constructor(
         val voiceState: VoiceState = VoiceState.IDLE,
         val inputText: String = "",
         val isKeyboardMode: Boolean = false,
+        val backendLabel: String = "",
     )
 
     private val _uiState = MutableStateFlow(UiState())
@@ -68,7 +69,7 @@ class ChatViewModel @Inject constructor(
             _uiState.update { it.copy(engineState = EngineState.Loading) }
             try {
                 engine.initialize(modelPath)
-                _uiState.update { it.copy(engineState = EngineState.Ready) }
+                _uiState.update { it.copy(engineState = EngineState.Ready, backendLabel = engine.activeBackend) }
             } catch (e: Exception) {
                 _uiState.update {
                     it.copy(engineState = EngineState.Error(e.message ?: "Engine init failed"))

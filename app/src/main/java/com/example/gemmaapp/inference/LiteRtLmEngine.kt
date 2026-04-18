@@ -22,9 +22,20 @@ class LiteRtLmEngine @Inject constructor(
 ) {
     private var engine: Engine? = null
     private var conversation: Conversation? = null
+    var activeBackend: String = "CPU"
+        private set
 
     suspend fun initialize(modelPath: String) = withContext(Dispatchers.IO) {
-        val backend = try { Backend.GPU() } catch (_: Exception) { Backend.CPU() }
+        val backend = try {
+            Backend.GPU().also {
+                activeBackend = "GPU"
+                android.util.Log.i("LiteRtLm", "Backend: GPU")
+            }
+        } catch (e: Exception) {
+            android.util.Log.w("LiteRtLm", "GPU failed (${e.message}), using CPU")
+            activeBackend = "CPU"
+            Backend.CPU()
+        }
         val config = EngineConfig(
             modelPath = modelPath,
             backend = backend,

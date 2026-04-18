@@ -130,6 +130,7 @@ fun ChatScreen(
         Column(modifier = Modifier.fillMaxSize()) {
             ChatAppBar(
                 engineState = uiState.engineState,
+                backendLabel = uiState.backendLabel,
                 onBack = onBack,
                 onClear = viewModel::clearConversation,
             )
@@ -237,6 +238,7 @@ private fun AmbientGlow() {
 @Composable
 private fun ChatAppBar(
     engineState: ChatViewModel.EngineState,
+    backendLabel: String,
     onBack: () -> Unit,
     onClear: () -> Unit,
 ) {
@@ -297,6 +299,17 @@ private fun ChatAppBar(
                     fontFamily = Mono,
                     letterSpacing = 0.4.sp,
                 )
+                if (engineState is ChatViewModel.EngineState.Ready && backendLabel.isNotEmpty()) {
+                    Text("·", fontSize = 10.sp, color = TextMuted)
+                    Text(
+                        text = backendLabel,
+                        fontSize = 10.sp,
+                        color = if (backendLabel == "GPU") BrandCyan else TextMuted,
+                        fontFamily = Mono,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 0.4.sp,
+                    )
+                }
             }
         }
 
