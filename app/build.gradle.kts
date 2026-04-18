@@ -100,6 +100,9 @@ dependencies {
     // LiteRT-LM — on-device LLM inference
     implementation(libs.litertlm.android)
 
+    // Markdown Render
+    implementation(libs.markdown.renderer.m3)
+
     // TODO Phase 2: add LiveKit for server-side agent pipeline
     //   implementation("io.livekit:livekit-android:2.24.1")
 

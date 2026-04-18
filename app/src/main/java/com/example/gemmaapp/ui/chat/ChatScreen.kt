@@ -28,6 +28,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentWidth
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -84,6 +87,9 @@ import com.example.gemmaapp.ui.theme.SuccessGreen
 import com.example.gemmaapp.ui.theme.TextMuted
 import com.example.gemmaapp.ui.theme.TextSecondary
 import androidx.compose.runtime.withFrameMillis
+import com.mikepenz.markdown.m3.Markdown
+import com.mikepenz.markdown.m3.markdownTypography
+import com.mikepenz.markdown.m3.markdownColor
 
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -155,37 +161,40 @@ fun ChatScreen(
                 }
             }
 
-            BottomBar(
-                uiState = uiState,
-                onInput = viewModel::updateInput,
-                onSend = viewModel::sendTextMessage,
-                onToggleKeyboard = viewModel::toggleKeyboardMode,
-                onMicClick = {
-                    if (uiState.voiceState == VoiceState.LISTENING) {
-                        viewModel.stopVoiceCapture()
-                    } else {
-                        val hasPermission = ContextCompat.checkSelfPermission(
-                            context, Manifest.permission.RECORD_AUDIO
-                        ) == PackageManager.PERMISSION_GRANTED
-                        if (hasPermission) viewModel.startVoiceCapture()
-                        else micPermLauncher.launch(Manifest.permission.RECORD_AUDIO)
-                    }
-                },
-            )
+            Column(modifier = Modifier.imePadding()) {
+                BottomBar(
+                    uiState = uiState,
+                    onInput = viewModel::updateInput,
+                    onSend = viewModel::sendTextMessage,
+                    onToggleKeyboard = viewModel::toggleKeyboardMode,
+                    onMicClick = {
+                        if (uiState.voiceState == VoiceState.LISTENING) {
+                            viewModel.stopVoiceCapture()
+                        } else {
+                            val hasPermission = ContextCompat.checkSelfPermission(
+                                context, Manifest.permission.RECORD_AUDIO
+                            ) == PackageManager.PERMISSION_GRANTED
+                            if (hasPermission) viewModel.startVoiceCapture()
+                            else micPermLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                        }
+                    },
+                )
 
-            // Home gesture indicator
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(24.dp)
-                    .background(BackgroundDark),
-                contentAlignment = Alignment.Center
-            ) {
+                // Home gesture indicator
                 Box(
                     modifier = Modifier
-                        .size(width = 108.dp, height = 4.dp)
-                        .background(Color.White.copy(alpha = 0.5f), RoundedCornerShape(2.dp))
-                )
+                        .fillMaxWidth()
+                        .navigationBarsPadding()
+                        .height(24.dp)
+                        .background(BackgroundDark),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(width = 108.dp, height = 4.dp)
+                            .background(Color.White.copy(alpha = 0.5f), RoundedCornerShape(2.dp))
+                    )
+                }
             }
         }
 
@@ -234,6 +243,7 @@ private fun ChatAppBar(
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .statusBarsPadding()
             .height(56.dp)
             .border(width = 0.5.dp, color = Color.White.copy(alpha = 0.04f)),
         verticalAlignment = Alignment.CenterVertically,
@@ -391,26 +401,37 @@ private fun AssistantBubble(message: ChatMessage) {
                 )
                 .padding(horizontal = 16.dp, vertical = 12.dp)
         ) {
-            Row {
-                Text(
-                    text = message.text,
-                    color = Color.White.copy(alpha = 0.92f),
-                    fontSize = 15.sp,
-                    lineHeight = 23.sp,
+            Column {
+                // Use the MikePenz Markdown renderer (Material 3 version)
+                com.mikepenz.markdown.m3.Markdown(
+                    content = message.text,
+                    typography = com.mikepenz.markdown.m3.markdownTypography(
+                        // In v0.27.0, 'text' is the parameter for the base body style
+                        text = TextStyle(
+                            color = Color.White.copy(alpha = 0.92f),
+                            fontSize = 15.sp,
+                            lineHeight = 23.sp,
+                        )
+                    ),
+                    colors = com.mikepenz.markdown.m3.markdownColor(
+                        text = Color.White.copy(alpha = 0.92f),
+                        codeBackground = Color.White.copy(alpha = 0.1f),
+                    )
                 )
+
+                // Cursor for streaming
                 if (message.isStreaming) {
-                    Spacer(Modifier.width(3.dp))
                     Box(
                         modifier = Modifier
+                            .padding(top = 4.dp)
                             .size(width = 8.dp, height = 16.dp)
-                            .align(Alignment.Bottom)
                             .background(BrandCyan.copy(alpha = cursorAlpha))
                     )
                 }
             }
         }
 
-        // Metadata
+// Metadata
         if (!message.isStreaming && message.tokenCount > 0) {
             Spacer(Modifier.height(4.dp))
             Row(
