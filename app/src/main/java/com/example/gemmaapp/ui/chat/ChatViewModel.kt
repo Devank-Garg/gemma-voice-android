@@ -10,6 +10,8 @@ import com.example.gemmaapp.data.model.DownloadState
 import com.example.gemmaapp.data.repository.ModelRepository
 import com.example.gemmaapp.inference.LiteRtLmEngine
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -47,6 +49,17 @@ class ChatViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(UiState())
     val uiState: StateFlow<UiState> = _uiState.asStateFlow()
 
+    private var inactivityJob: Job? = null
+
+    private fun resetInactivityTimer() {
+        inactivityJob?.cancel()
+        inactivityJob = viewModelScope.launch {
+            delay(INACTIVITY_TIMEOUT_MS)
+            engine.close()
+            _uiState.update { it.copy(engineState = EngineState.Idle, backendLabel = "") }
+        }
+    }
+
     init {
         viewModelScope.launch {
             val path = modelRepository.getModelPath()
@@ -79,7 +92,14 @@ class ChatViewModel @Inject constructor(
     }
 
     fun sendTextMessage(text: String) {
-        if (text.isBlank() || _uiState.value.engineState !is EngineState.Ready) return
+        if (text.isBlank()) return
+        // Model was unloaded due to inactivity — reload it; user retries after Ready
+        if (_uiState.value.engineState is EngineState.Idle) {
+            viewModelScope.launch { modelRepository.getModelPath()?.let { loadEngine(it) } }
+            return
+        }
+        if (_uiState.value.engineState !is EngineState.Ready) return
+        resetInactivityTimer()
 
         val userMsg = ChatMessage(role = ChatMessage.Role.USER, text = text.trim())
         val placeholder = ChatMessage(role = ChatMessage.Role.ASSISTANT, text = "", isStreaming = true)
@@ -114,6 +134,7 @@ class ChatViewModel @Inject constructor(
     }
 
     fun startVoiceCapture() {
+        resetInactivityTimer()
         _uiState.update { it.copy(voiceState = VoiceState.LISTENING) }
         audioCaptureManager.startCapture(viewModelScope)
         viewModelScope.launch {
@@ -171,7 +192,12 @@ class ChatViewModel @Inject constructor(
 
     override fun onCleared() {
         super.onCleared()
+        inactivityJob?.cancel()
         audioCaptureManager.stopCapture()
         engine.close()
+    }
+
+    companion object {
+        private const val INACTIVITY_TIMEOUT_MS = 10 * 60 * 1000L // 10 minutes
     }
 }

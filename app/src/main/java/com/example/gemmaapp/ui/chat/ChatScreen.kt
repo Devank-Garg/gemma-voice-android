@@ -357,7 +357,7 @@ private fun UserBubble(message: ChatMessage) {
             )
             Text("·", fontSize = 10.sp, color = TextMuted)
             Text(
-                text = "voice",
+                text = "User ",
                 fontSize = 10.sp, color = SuccessGreen, fontFamily = Mono,
             )
         }
