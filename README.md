@@ -72,20 +72,7 @@ adb push gemma-4-E2B-it.litertlm \
 
 ---
 
-## Sprint Status
 
-| Sprint | Status | Scope |
-|---|---|---|
-| 0 — Scaffold | ✅ Complete | Gradle, Hilt (KSP), NavGraph, permissions, folder structure |
-| 1 — Download | ✅ Complete | ModelDownloadWorker (resumable), SettingsRepository, Home UI |
-| 2 — Audio/VAD | ✅ Complete | AudioCaptureManager (16kHz PCM float), PcmBuffer, VoiceActivityDetector (energy VAD) |
-| 3 — Inference (text) | ✅ Complete | LiteRtLmEngine (GPU→CPU), text chat via LiteRT-LM 0.10.2, streaming Flow |
-| 3 — Inference (audio) | 🔲 Pending | AudioTokenizer, GemmaVoiceSession (connects VAD clip → engine) |
-| 4 — TTS | 🔲 Pending | KokoroEngine (ONNX), TtsSynthesizer streaming |
-| 5 — Chat UI | ✅ Complete | ChatScreen (full design), ChatViewModel state machine |
-| 6 — Polish | 🔲 Pending | Error handling, settings screen, OOM graceful fail |
-
----
 
 ## Project Structure
 
