@@ -1,5 +1,11 @@
 # Gemma Voice — Local Android AI Assistant
 
+<p align="center">
+  <img src="assets/chat history.jpeg" width="250" />
+  <img src="assets/Home page UI.jpeg" width="250" />
+
+</p>
+
 A fully offline Android voice assistant powered by Google's Gemma 4 model. Speak a question, Gemma answers on-device, Kokoro TTS speaks the response. No cloud APIs, no data leaves the device.
 
 ---
