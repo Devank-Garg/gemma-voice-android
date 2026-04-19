@@ -9,6 +9,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [0.3.0] — 2026-04-19 — Model Locate + App Icon
+
+### Added
+- **"Locate Model" file picker** (`HomeScreen`) — replaces Download button; opens system file browser so the user can point to an existing `.litertlm` file on the device
+- **`HomeViewModel.onModelLocated()`** — resolves a content URI to a real file path (handles primary external storage and generic `DATA` column fallback); shows an inline ADB hint if resolution fails
+- **`ModelRepository.saveModelPath()`** — persists a user-selected model path to DataStore
+
+### Changed
+- **`ModelRepository.getModelPath()`** — now `suspend`; checks DataStore-saved custom path first, then the default ADB location (`getExternalFilesDir/models/`)
+- **`ModelRepository.observeDownloadState()`** — uses `flatMapLatest` on `settingsRepository.modelPath`; immediately emits `Complete` when a valid custom path is set
+- **`HomeViewModel`** — removed `startDownload()`; added `locateError: StateFlow<String?>` for path-resolution failures
+- **`HomeScreen`** — model card now shows "Locate" button (folder icon) instead of "Download"; error message displayed inline if path resolution fails
+- **`DownloadScreen` / `DownloadViewModel`** — removed broken `startDownload()` references (screen is unused stub)
+- **`AndroidManifest.xml`** — added `FOREGROUND_SERVICE_DATA_SYNC` permission and `SystemForegroundService` foreground service type declaration (`dataSync`) required for Android 14+
+- **App icon + name** — updated launcher icons (all densities) and `strings.xml` app name
+
+---
+
 ## [0.2.0] — 2026-04-18 — Sprint 2 + 3 (Audio, Inference, Chat UI)
 
 ### Added

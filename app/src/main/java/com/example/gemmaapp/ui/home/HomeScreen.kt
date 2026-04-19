@@ -1,5 +1,7 @@
 package com.example.gemmaapp.ui.home
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -18,7 +20,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.CloudDownload
+import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
@@ -31,6 +33,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -63,7 +66,15 @@ fun HomeScreen(
     viewModel: HomeViewModel = hiltViewModel()
 ) {
     val state by viewModel.downloadState.collectAsStateWithLifecycle()
+    val locateError by viewModel.locateError.collectAsStateWithLifecycle()
     val modelReady = state is DownloadState.Complete
+    val context = LocalContext.current
+
+    val filePicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        uri?.let { viewModel.onModelLocated(it, context.contentResolver) }
+    }
 
     Box(
         modifier = Modifier
@@ -78,12 +89,10 @@ fun HomeScreen(
         ) {
             Spacer(Modifier.height(72.dp))
 
-            // Glowing mic icon
             MicHero()
 
             Spacer(Modifier.height(28.dp))
 
-            // Title
             Text(
                 text = "Gemma Voice",
                 fontSize = 36.sp,
@@ -112,14 +121,16 @@ fun HomeScreen(
 
             Spacer(Modifier.height(40.dp))
 
-            // Model card
-            ModelCard(state = state, onDownload = { viewModel.startDownload() })
+            ModelCard(
+                state = state,
+                locateError = locateError,
+                onLocate = { filePicker.launch(arrayOf("*/*")) }
+            )
 
             Spacer(Modifier.weight(1f))
 
-            // CTA button
             GradientButton(
-                text = if (modelReady) "Start Conversation" else "Download model to begin",
+                text = if (modelReady) "Start Conversation" else "Locate model to begin",
                 enabled = modelReady,
                 onClick = onStartChat
             )
@@ -132,7 +143,6 @@ fun HomeScreen(
 @Composable
 private fun MicHero() {
     Box(contentAlignment = Alignment.Center) {
-        // Outer glow ring
         Box(
             modifier = Modifier
                 .size(120.dp)
@@ -147,7 +157,6 @@ private fun MicHero() {
                     )
                 )
         )
-        // Mid ring
         Box(
             modifier = Modifier
                 .size(88.dp)
@@ -166,7 +175,6 @@ private fun MicHero() {
                     shape = CircleShape
                 )
         )
-        // Inner filled circle
         Box(
             modifier = Modifier
                 .size(64.dp)
@@ -185,7 +193,11 @@ private fun MicHero() {
 }
 
 @Composable
-private fun ModelCard(state: DownloadState, onDownload: () -> Unit) {
+private fun ModelCard(
+    state: DownloadState,
+    locateError: String?,
+    onLocate: () -> Unit
+) {
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -210,45 +222,63 @@ private fun ModelCard(state: DownloadState, onDownload: () -> Unit) {
             Spacer(Modifier.height(12.dp))
 
             when (val s = state) {
-                is DownloadState.Idle -> IdleModelRow(onDownload)
+                is DownloadState.Idle -> IdleModelRow(onLocate)
                 is DownloadState.Downloading -> DownloadingModelRow(s)
                 is DownloadState.Verifying -> VerifyingModelRow()
                 is DownloadState.Complete -> ReadyModelRow()
-                is DownloadState.Error -> ErrorModelRow(s.message, onDownload)
+                is DownloadState.Error -> IdleModelRow(onLocate)
+            }
+
+            if (locateError != null) {
+                Spacer(Modifier.height(12.dp))
+                Text(
+                    text = locateError,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = ErrorRed,
+                    lineHeight = 18.sp
+                )
             }
         }
     }
 }
 
 @Composable
-private fun IdleModelRow(onDownload: () -> Unit) {
+private fun IdleModelRow(onLocate: () -> Unit) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Column {
+        Column(modifier = Modifier.weight(1f)) {
             Text(GEMMA_4_E2B.name, style = MaterialTheme.typography.titleMedium, color = TextPrimary)
             Spacer(Modifier.height(2.dp))
             Text(
-                "~${formatBytes(GEMMA_4_E2B.sizeBytes)}  ·  INT4  ·  not downloaded",
+                "INT4  ·  ~2.58 GB  ·  not found",
                 style = MaterialTheme.typography.bodySmall,
                 color = TextSecondary
             )
         }
+        Spacer(Modifier.width(12.dp))
         Box(
             modifier = Modifier
                 .clip(RoundedCornerShape(12.dp))
                 .background(gradientBrush)
-                .clickable { onDownload() }
+                .clickable { onLocate() }
                 .padding(horizontal = 16.dp, vertical = 8.dp)
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.CloudDownload, contentDescription = null,
-                    tint = Color.White, modifier = Modifier.size(16.dp))
+                Icon(
+                    Icons.Default.FolderOpen,
+                    contentDescription = null,
+                    tint = Color.White,
+                    modifier = Modifier.size(16.dp)
+                )
                 Spacer(Modifier.width(6.dp))
-                Text("Download", color = Color.White,
-                    style = MaterialTheme.typography.labelMedium)
+                Text(
+                    "Locate",
+                    color = Color.White,
+                    style = MaterialTheme.typography.labelMedium
+                )
             }
         }
     }
@@ -340,25 +370,6 @@ private fun ReadyModelRow() {
                 tint = SuccessGreen,
                 modifier = Modifier.size(22.dp)
             )
-        }
-    }
-}
-
-@Composable
-private fun ErrorModelRow(message: String, onRetry: () -> Unit) {
-    Column {
-        Text(GEMMA_4_E2B.name, style = MaterialTheme.typography.titleMedium, color = TextPrimary)
-        Spacer(Modifier.height(4.dp))
-        Text(message, style = MaterialTheme.typography.bodySmall, color = ErrorRed)
-        Spacer(Modifier.height(12.dp))
-        Box(
-            modifier = Modifier
-                .clip(RoundedCornerShape(10.dp))
-                .border(1.dp, ErrorRed.copy(alpha = 0.5f), RoundedCornerShape(10.dp))
-                .clickable { onRetry() }
-                .padding(horizontal = 16.dp, vertical = 8.dp)
-        ) {
-            Text("Retry", color = ErrorRed, style = MaterialTheme.typography.labelMedium)
         }
     }
 }

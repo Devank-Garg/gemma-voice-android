@@ -23,5 +23,4 @@ class DownloadViewModel @Inject constructor(
                 DownloadState.Complete else DownloadState.Idle
         )
 
-    fun startDownload() = modelRepository.startDownload()
 }
