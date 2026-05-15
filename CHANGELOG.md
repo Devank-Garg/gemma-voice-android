@@ -9,6 +9,72 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [0.5.0] — 2026-05-15 — Voice Pipeline Stability + TTS Quality
+
+### Fixed
+- **Voice pipeline crash after first reply** — `PcmBuffer.chunks` is a `SharedFlow` that never completes; the VAD coroutine stayed alive after `SpeechEnd`, still subscribed to the buffer. A second mic tap launched a second VAD coroutine, both fired `processVoiceInput()` concurrently, causing two simultaneous `conv.sendMessageAsync()` calls on the same `Conversation` object → crash. Fixed by tracking `vadJob` and cancelling it at the start of every `startVoiceCapture()` call.
+- **Silent token loss** — `shareIn(replay = 0)` dropped LLM tokens emitted before the UI collector subscribed. Changed to `replay = 512`.
+- **Waveform animating during model response** — `WaveformBars` was `active` during both `LISTENING` and `SPEAKING` states, making the mic waveform animate while the model was talking. Now only active during `LISTENING`.
+
+### Changed
+- **`startVoiceCapture()`** — replaced VAD-based end-of-speech detection (was silently failing on this device) with a fixed 2-second capture window. VAD code preserved; swap back by restoring `vad.detect()` inside `vadJob`.
+- **`TtsSynthesizer.synthesizeStream()`** — rewrote from `flow {}` to `channelFlow {}` with a dedicated synthesis coroutine on `Dispatchers.IO`. Sentence N+1 is now synthesized while sentence N is playing, eliminating inter-sentence silence gaps.
+- **`TtsSynthesizer.synthesizeStream()`** — first audio chunk now fires after 3 words accumulate (regardless of punctuation), reducing perceived startup latency. Subsequent chunks flush at sentence boundaries plus soft boundaries (`,` `;` `:` after ≥ 20 chars).
+- **`EnglishPhonemizer`** — replaced 250-word hardcoded dictionary with CMU Pronouncing Dictionary (134k entries, loaded from `assets/cmudict.txt` at Kokoro init time). Fallback chain: CMU dict → small hardcoded dict → rule-based.
+- **`EnglishPhonemizer`** — added acronym detection: any all-caps word ≥ 2 letters (AI, GPU, LLM, API, CPU…) is spelled out letter-by-letter using a dedicated `LETTER_NAMES` map with correct English letter-name phonemes, instead of being looked up as a word in cmudict.
+- **`KokoroEngine.initialize()`** — calls `EnglishPhonemizer.loadDict(context.assets)` on startup.
+- **`ChatViewModel`** — removed unused `VoiceActivityDetector` injection; cleaned dead import.
+
+### Added
+- `app/src/main/assets/cmudict.txt` — CMU Pronouncing Dictionary 0.7b (135 166 lines).
+
+### Known Issues
+- VAD end-of-speech detection unreliable on test device (energy threshold / silence window mismatch with ambient noise). Using fixed 2-second window as workaround; restore VAD when tuning is done.
+- TTS startup latency still noticeable (~Kokoro synthesis time for first 3 words). Latency floor is bounded by model inference speed; further reduction requires overlapping LLM and TTS more aggressively.
+
+---
+
+## [0.4.0] — 2026-04-25 — TTS Integration + Voice Pipeline Fixes
+
+### Added
+- **`KokoroEngine`** (`tts/`) — full Kokoro v1.0 ONNX TTS integration
+  - Loads `kokoro-v1.0.onnx` and `voices/af_heart.bin` from `getExternalFilesDir/models/`
+  - `initialize()` / `synthesize()` run on `Dispatchers.IO` (fixes ANR caused by blocking ONNX load on main thread)
+  - Style vector indexed by token length for natural prosody
+  - Clamps input to 510 tokens (model max)
+- **`EnglishPhonemizer`** (`tts/`) — fully offline text → Kokoro token IDs
+  - 38 ARPABET phones mapped to Kokoro token IDs
+  - 250+ word pronunciation dictionary
+  - Rule-based fallback: trigram → bigram → letter-by-letter
+  - Number expansion (cardinal and ordinal)
+- **`TtsSynthesizer`** (`tts/`) — streaming LLM → audio pipeline
+  - Collects token flow, splits at sentence boundaries (`.` `!` `?` `\n`)
+  - Synthesizes each sentence as it arrives; first audio chunk emits before LLM finishes
+- **`AudioPlayer`** (`tts/`) — plays PCM float chunks via AudioTrack (24 kHz, `USAGE_ASSISTANT`, stream mode)
+- **`LiteRtLmEngine.sendAudio()`** — sends voice input to Gemma 4 E2B using `Content.AudioBytes`
+- **`ChatViewModel.processVoiceInput()`** — full voice turn: audio → LLM → TTS → playback, with concurrent UI streaming via `shareIn`
+- **10-minute inactivity timer** — auto-closes engine after 10 min idle; reloads on next user message
+- **GPU/CPU backend indicator** in chat app bar (cyan for GPU, muted for CPU)
+- **Markdown rendering** for assistant messages (`com.mikepenz:multiplatform-markdown-renderer-m3`)
+- **Debug audio recorder** ("REC 5s" button in voice bar) — records 5 s of mic audio and saves `debug_audio.wav` to external files dir for ADB inspection; checks `RECORD_AUDIO` permission before starting
+
+### Changed
+- **`LiteRtLmEngine`** — added `sendAudio(pcm: FloatArray): Flow<String>`; added `audioBackend = Backend.CPU()` to `EngineConfig` (required for Gemma 4 audio routing)
+- **`LiteRtLmEngine.sendAudio()`** — audio is now wrapped in a standard **16-bit PCM WAV** container before being passed to `Content.AudioBytes` (raw float32 bytes were silently rejected by the model)
+- **`ChatViewModel`** — wired TTS synthesizer and audio player into voice pipeline; added `processVoiceInput()` with full error handling and logcat logging (`ChatVM` tag)
+- **`ChatScreen`** — user message bubble label corrected to "User" (was "Gemma"); added REC 5s debug button with live status text
+
+### Fixed
+- **ANR on startup** — `KokoroEngine.initialize()` and `synthesize()` were blocking the main thread; moved to `withContext(Dispatchers.IO)`
+- **Compile error** — `return FloatArray(0)` inside `withContext { }` lambda is a non-local return (not allowed); fixed to `return@withContext FloatArray(0)` throughout `KokoroEngine.synthesize()`
+- **Debug recorder crash** — `recordDebugAudio()` was calling `AudioRecord` without checking `RECORD_AUDIO` permission first; now checks permission and wraps in try-catch, showing error inline instead of crashing
+
+### Known Issues
+- **Voice pipeline crashes after first reply** — tested: tap mic → say "hello" → Gemma replies correctly (text + audio). App then crashes on the second voice turn. Root cause not yet identified; likely an exception in `shareIn` / `SharingStarted.Eagerly` flow after the first turn completes. Under investigation.
+- **Kokoro TTS requires manual model placement** — `kokoro-v1.0.onnx` and `voices/af_heart.bin` must be pushed via ADB to `/sdcard/Android/data/com.example.gemmaapp/files/models/`; no in-app download yet
+
+---
+
 ## [0.3.0] — 2026-04-19 — Model Locate + App Icon
 
 ### Added

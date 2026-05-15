@@ -42,7 +42,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Keyboard
+import androidx.compose.material.icons.filled.FiberManualRecord
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material3.TextButton
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.CircularProgressIndicator
@@ -168,6 +170,7 @@ fun ChatScreen(
                     onInput = viewModel::updateInput,
                     onSend = viewModel::sendTextMessage,
                     onToggleKeyboard = viewModel::toggleKeyboardMode,
+                    onDebugRecord = viewModel::recordDebugAudio,
                     onMicClick = {
                         if (uiState.voiceState == VoiceState.LISTENING) {
                             viewModel.stopVoiceCapture()
@@ -357,7 +360,7 @@ private fun UserBubble(message: ChatMessage) {
             )
             Text("·", fontSize = 10.sp, color = TextMuted)
             Text(
-                text = "User ",
+                text = "User",
                 fontSize = 10.sp, color = SuccessGreen, fontFamily = Mono,
             )
         }
@@ -592,6 +595,7 @@ private fun BottomBar(
     onInput: (String) -> Unit,
     onSend: (String) -> Unit,
     onToggleKeyboard: () -> Unit,
+    onDebugRecord: () -> Unit,
     onMicClick: () -> Unit,
 ) {
     Column(
@@ -688,7 +692,7 @@ private fun BottomBar(
                 // Waveform
                 WaveformBars(
                     modifier = Modifier.weight(1f),
-                    active = uiState.voiceState == VoiceState.LISTENING || uiState.voiceState == VoiceState.SPEAKING,
+                    active = uiState.voiceState == VoiceState.LISTENING,
                 )
 
                 // Mic / stop button
@@ -711,6 +715,38 @@ private fun BottomBar(
                 fontFamily = Mono,
                 letterSpacing = 0.4.sp,
             )
+
+            // Debug: record 5s to WAV
+            Row(
+                modifier = Modifier.align(Alignment.CenterHorizontally),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                TextButton(onClick = onDebugRecord) {
+                    Icon(
+                        imageVector = Icons.Default.FiberManualRecord,
+                        contentDescription = null,
+                        tint = ErrorRed,
+                        modifier = Modifier.size(10.dp),
+                    )
+                    Spacer(Modifier.width(4.dp))
+                    Text(
+                        text = if (uiState.debugStatus == "Recording…") "Recording…" else "REC 5s",
+                        fontSize = 11.sp,
+                        color = ErrorRed,
+                        fontFamily = Mono,
+                    )
+                }
+                if (uiState.debugStatus.isNotEmpty() && uiState.debugStatus != "Recording…") {
+                    Text(
+                        text = uiState.debugStatus,
+                        fontSize = 10.sp,
+                        color = SuccessGreen,
+                        fontFamily = Mono,
+                        maxLines = 1,
+                    )
+                }
+            }
         }
     }
 }
