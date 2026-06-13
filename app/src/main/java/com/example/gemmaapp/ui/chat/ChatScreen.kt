@@ -41,22 +41,25 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Keyboard
-import androidx.compose.material.icons.filled.FiberManualRecord
-import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material3.TextButton
+
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.RestartAlt
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -111,6 +114,8 @@ fun ChatScreen(
     val context = LocalContext.current
     val listState = rememberLazyListState()
 
+    var showNewThreadDialog by remember { mutableStateOf(false) }
+
     val micPermLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted -> if (granted) viewModel.startVoiceCapture() }
@@ -134,7 +139,7 @@ fun ChatScreen(
                 engineState = uiState.engineState,
                 backendLabel = uiState.backendLabel,
                 onBack = onBack,
-                onClear = viewModel::clearConversation,
+                onMenuClick = { showNewThreadDialog = true },
             )
 
             LazyColumn(
@@ -170,7 +175,6 @@ fun ChatScreen(
                     onInput = viewModel::updateInput,
                     onSend = viewModel::sendTextMessage,
                     onToggleKeyboard = viewModel::toggleKeyboardMode,
-                    onDebugRecord = viewModel::recordDebugAudio,
                     onMicClick = {
                         if (uiState.voiceState == VoiceState.LISTENING) {
                             viewModel.stopVoiceCapture()
@@ -200,6 +204,47 @@ fun ChatScreen(
                     )
                 }
             }
+        }
+
+        // New Thread confirmation dialog
+        if (showNewThreadDialog) {
+            AlertDialog(
+                onDismissRequest = { showNewThreadDialog = false },
+                containerColor = Color(0xFF111827),
+                titleContentColor = Color.White,
+                textContentColor = TextSecondary,
+                title = {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.RestartAlt,
+                            contentDescription = null,
+                            tint = BrandPurple,
+                            modifier = Modifier.size(20.dp),
+                        )
+                        Text("New Thread", fontWeight = FontWeight.Bold)
+                    }
+                },
+                text = { Text("This will clear the current conversation. Gemma's memory of this session will be lost.") },
+                confirmButton = {
+                    TextButton(onClick = {
+                        viewModel.clearConversation()
+                        showNewThreadDialog = false
+                    }) {
+                        Text(
+                            "New Thread",
+                            style = TextStyle(brush = gradientBrush, fontWeight = FontWeight.SemiBold),
+                        )
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showNewThreadDialog = false }) {
+                        Text("Cancel", color = TextMuted)
+                    }
+                },
+            )
         }
 
         // Engine loading overlay
@@ -243,7 +288,7 @@ private fun ChatAppBar(
     engineState: ChatViewModel.EngineState,
     backendLabel: String,
     onBack: () -> Unit,
-    onClear: () -> Unit,
+    onMenuClick: () -> Unit,
 ) {
     Row(
         modifier = Modifier
@@ -266,12 +311,12 @@ private fun ChatAppBar(
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Text(
-                text = "Gemma Voice",
+                text = "J.A.R.V.I.S",
                 style = TextStyle(
                     brush = gradientBrush,
                     fontSize = 17.sp,
                     fontWeight = FontWeight.Bold,
-                    letterSpacing = (-0.2).sp,
+                    letterSpacing = 1.sp,
                 )
             )
             Row(
@@ -290,7 +335,7 @@ private fun ChatAppBar(
                         .background(dotColor, CircleShape)
                 )
                 val label = when (engineState) {
-                    is ChatViewModel.EngineState.Loading -> "LOADING MODEL…"
+                    is ChatViewModel.EngineState.Loading -> "INITIALISING SYSTEMS…"
                     is ChatViewModel.EngineState.Ready -> "ON-DEVICE · GEMMA 4 E2B"
                     is ChatViewModel.EngineState.Error -> "ENGINE ERROR"
                     else -> "MODEL NOT LOADED"
@@ -316,10 +361,10 @@ private fun ChatAppBar(
             }
         }
 
-        IconButton(onClick = onClear) {
+        IconButton(onClick = onMenuClick) {
             Icon(
-                imageVector = Icons.Default.MoreVert,
-                contentDescription = "Options",
+                imageVector = Icons.Default.Add,
+                contentDescription = "New Thread",
                 tint = Color.White.copy(alpha = 0.6f),
             )
         }
@@ -395,7 +440,7 @@ private fun AssistantBubble(message: ChatMessage) {
                 Text("✦", fontSize = 7.sp, color = Color.White)
             }
             Text(
-                text = "GEMMA",
+                text = "J.A.R.V.I.S",
                 fontSize = 11.sp,
                 color = TextSecondary,
                 fontFamily = Mono,
@@ -576,12 +621,21 @@ private fun EmptyState() {
         ) {
             Text("✦", fontSize = 28.sp, color = Color.White)
         }
+        val greeting = remember {
+            val hour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
+            when (hour) {
+                in 5..11  -> "Good morning, sir."
+                in 12..16 -> "Good afternoon, sir."
+                in 17..20 -> "Good evening, sir."
+                else      -> "Working late, sir?"
+            }
+        }
         Text(
-            text = "Start Speaking",
+            text = greeting,
             fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Color.White,
         )
         Text(
-            text = "Gemma is ready and listening",
+            text = "Tap the mic when you're ready",
             fontSize = 14.sp, color = TextSecondary,
         )
     }
@@ -595,7 +649,6 @@ private fun BottomBar(
     onInput: (String) -> Unit,
     onSend: (String) -> Unit,
     onToggleKeyboard: () -> Unit,
-    onDebugRecord: () -> Unit,
     onMicClick: () -> Unit,
 ) {
     Column(
@@ -702,10 +755,10 @@ private fun BottomBar(
             // Status label
             val statusLabel = when (uiState.voiceState) {
                 VoiceState.LISTENING -> "LISTENING…"
-                VoiceState.PROCESSING -> "THINKING ON-DEVICE…"
-                VoiceState.SPEAKING -> "SPEAKING"
+                VoiceState.PROCESSING -> "PROCESSING…"
+                VoiceState.SPEAKING -> "JARVIS RESPONDING"
                 VoiceState.ERROR -> "ERROR — TAP TO RETRY"
-                else -> "TAP TO SPEAK"
+                else -> "TAP MIC TO SPEAK"
             }
             Text(
                 text = statusLabel,
@@ -716,37 +769,6 @@ private fun BottomBar(
                 letterSpacing = 0.4.sp,
             )
 
-            // Debug: record 5s to WAV
-            Row(
-                modifier = Modifier.align(Alignment.CenterHorizontally),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                TextButton(onClick = onDebugRecord) {
-                    Icon(
-                        imageVector = Icons.Default.FiberManualRecord,
-                        contentDescription = null,
-                        tint = ErrorRed,
-                        modifier = Modifier.size(10.dp),
-                    )
-                    Spacer(Modifier.width(4.dp))
-                    Text(
-                        text = if (uiState.debugStatus == "Recording…") "Recording…" else "REC 5s",
-                        fontSize = 11.sp,
-                        color = ErrorRed,
-                        fontFamily = Mono,
-                    )
-                }
-                if (uiState.debugStatus.isNotEmpty() && uiState.debugStatus != "Recording…") {
-                    Text(
-                        text = uiState.debugStatus,
-                        fontSize = 10.sp,
-                        color = SuccessGreen,
-                        fontFamily = Mono,
-                        maxLines = 1,
-                    )
-                }
-            }
         }
     }
 }
@@ -875,11 +897,11 @@ private fun EngineLoadingOverlay() {
                 trackColor = BrandCyan.copy(alpha = 0.2f),
             )
             Text(
-                text = "Loading Gemma 4 E2B…",
+                text = "Initialising J.A.R.V.I.S…",
                 fontSize = 15.sp, fontWeight = FontWeight.Medium, color = Color.White,
             )
             Text(
-                text = "This takes 5–10 s on first run",
+                text = "Loading systems, please stand by",
                 fontSize = 12.sp, color = TextSecondary,
             )
         }

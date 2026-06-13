@@ -1,29 +1,42 @@
-# Gemma Voice — Session Handoff (2026-05-15)
+# J.A.R.V.I.S — Session Handoff (2026-06-13)
 
 ## What Was Done This Session
 
-### 1. Voice Pipeline Crash Fixed
-**Root cause:** `PcmBuffer.chunks` is a `SharedFlow` that never completes. After `SpeechEnd`, `stopCapture()` stopped new chunks arriving but the VAD coroutine stayed alive, still subscribed. A second mic tap created a second VAD coroutine — both received the same PCM chunks, both called `processVoiceInput()` concurrently → two simultaneous `conv.sendMessageAsync()` calls on one `Conversation` object → crash.
+### 1. TTS Replaced: Kokoro ONNX → Android TextToSpeech
+Kokoro was causing 200–400ms synthesis latency per sentence. Replaced with Android's built-in `TextToSpeech` API via a new `AndroidTtsEngine.kt` wrapper. First audio now starts within ~30ms of tokens arriving. No model files needed — works out of the box on any Android device.
 
-**Fix:** `ChatViewModel` now tracks `private var vadJob: Job?`. Every `startVoiceCapture()` call cancels the previous job before launching a new one.
+**Key design:** `AndroidTtsEngine` uses an `AtomicInteger pendingCount` and an `AtomicBoolean sealed` flag. `speak()` increments the counter; each `onDone` callback decrements it. `sealQueue(callback)` marks the queue closed — when `pendingCount` hits 0 and the queue is sealed, the drain callback fires. This is reliable regardless of whether TTS drains before or after `sealQueue` is called.
 
-### 2. VAD End-of-Speech Replaced with Fixed 2-Second Window
-The VAD energy/silence detector was not reliably firing `SpeechEnd` on the test device (ambient noise kept resetting the silence timer). Replaced with a fixed 2-second capture window that fires `processVoiceInput()` automatically. The VAD code (`VoiceActivityDetector.kt`) is intact — restore by swapping back to `vad.detect()` inside `vadJob` in `startVoiceCapture()`.
+### 2. Idle-Token Watchdog in TtsSynthesizer
+`sendMessageAsync` returns a hot `SharedFlow` that **never closes**. The previous `textTokens.collect {}` in `synthesizeAndPlay` therefore blocked forever — `sealQueue(onDone)` was unreachable, so the cursor and "JARVIS RESPONDING" label never cleared.
 
-### 3. Waveform UI Fixed
-`WaveformBars` was active during both `LISTENING` and `SPEAKING`, so the waveform kept animating while the model was talking. Changed to active during `LISTENING` only (line 695 in `ChatScreen.kt`).
+**Fix:** `coroutineScope` runs a `collectJob` (collecting tokens) and a watchdog loop concurrently. Watchdog polls every 150ms; once 1200ms passes with no new token, it cancels `collectJob` and execution continues to `sealQueue(onDone)`. Critically, the countdown only starts after `firstTokenReceived = true` — otherwise it would fire immediately during audio preprocessing (which takes several seconds before first token).
 
-### 4. TTS Inter-Sentence Gaps Fixed
-`TtsSynthesizer.synthesizeStream()` previously ran synthesis and playback sequentially in the same coroutine — Kokoro had to finish synthesizing sentence N+1 before AudioTrack could play it. Rewrote using `channelFlow` + a dedicated synthesis coroutine on `Dispatchers.IO`. Now sentence N+1 synthesizes in parallel while sentence N plays.
+### 3. tok/s Now Measures Generation Speed Only
+`startMs` in `processVoiceInput()` was set at function entry, including audio-preprocessing wait time (several seconds). Changed to `var startMs = 0L`, reset to `currentTimeMillis()` on the first token. Displayed tok/s now matches the visual streaming speed.
 
-### 5. TTS Startup Latency Reduced
-First audio chunk now fires after 3 words accumulate (space count ≥ 2), regardless of punctuation. Previously waited for first sentence-ending `.!?\n`. Subsequent chunks still flush at sentence and soft (`,;:`) boundaries.
+### 4. VAD Restored with Adaptive Noise Floor
+Replaced the fixed 2-second capture window with a proper VAD:
+- 500ms ambient calibration on mic open → `threshold = max(0.01f, ambientRms × 3.5f)`
+- `SILENCE_MS = 900`, `MIN_SPEECH_MS = 200`
+- Emits `SpeechStart`, `SpeechEnd(pcm)`, `Timeout`
 
-### 6. Pronunciation Quality — CMU Dictionary
-`EnglishPhonemizer` replaced its ~250-word hardcoded dictionary with the full CMU Pronouncing Dictionary (134k words) bundled as `app/src/main/assets/cmudict.txt`. Loaded once at Kokoro init on `Dispatchers.IO`. Lookup chain: CMU dict → small fallback dict → rule-based.
+### 5. 8-Second No-Speech Timeout
+`startVoiceCapture()` launches a `noSpeechJob` that fires after 8s if `speechDetected` is still false. Stops capture and has JARVIS say (and display) "I didn't catch that — could you tap the mic and try again?"
 
-### 7. Acronym Pronunciation Fixed
-All-caps words ≥ 2 letters (AI, GPU, LLM, API, CPU, etc.) are detected as acronyms and spelled out letter-by-letter using a dedicated `LETTER_NAMES` map (e.g. AI → "ay-eye", GPU → "gee-pee-you"). CMU dict cannot be used here because its first entry for "a" is the article pronunciation `AH0`, not the letter name `EY1`.
+### 6. App Rebranded as J.A.R.V.I.S
+- `strings.xml`: `app_name` → "J.A.R.V.I.S"
+- `LiteRtLmEngine` system prompt: full JARVIS persona (Iron Man), concise spoken responses, addresses user as "sir"
+- `HomeScreen`: title "J.A.R.V.I.S", tagline "Just A Rather Very Intelligent System", updated description
+- `ChatScreen`: app bar, bubble labels, status strings, empty state all updated
+
+### 7. Chat UI Improvements
+- `⋮` menu replaced with `+` (Add) icon → "New Thread" confirmation `AlertDialog`
+- Empty state greeting is time-based: Good morning/afternoon/evening/night, Sir
+- Debug "REC 5s" button removed
+
+### 8. Dead Code Removed
+Deleted: `KokoroEngine.kt`, `EnglishPhonemizer.kt`, `AudioPlayer.kt`, `assets/cmudict.txt`
 
 ---
 
@@ -31,14 +44,17 @@ All-caps words ≥ 2 letters (AI, GPU, LLM, API, CPU, etc.) are detected as acro
 
 | Feature | Status |
 |---|---|
-| Mic tap → 2s recording → LLM inference | ✅ Working |
+| Mic tap → VAD → LLM inference | ✅ Working |
 | LLM text streaming to chat UI | ✅ Working |
-| Kokoro TTS with CMU dict phonemization | ✅ Working |
-| Acronym pronunciation (AI, GPU, etc.) | ✅ Working |
-| AudioTrack playback (24 kHz float) | ✅ Working |
-| Inter-sentence parallel synthesis | ✅ Working |
-| Waveform animates during recording only | ✅ Working |
-| VAD end-of-speech detection | ⚠️ Bypassed (2s window used instead) |
+| Android TTS playback | ✅ Working |
+| Cursor clears after response | ✅ Fixed |
+| "JARVIS RESPONDING" clears after done | ✅ Fixed |
+| tok/s reflects actual generation speed | ✅ Fixed |
+| 8s no-speech timeout with spoken message | ✅ Working |
+| Adaptive VAD with noise floor calibration | ✅ Working |
+| JARVIS branding throughout | ✅ Done |
+| New Thread confirmation dialog | ✅ Working |
+| Time-based greeting in empty state | ✅ Working |
 
 ---
 
@@ -46,24 +62,28 @@ All-caps words ≥ 2 letters (AI, GPU, LLM, API, CPU, etc.) are detected as acro
 
 | File | Change |
 |---|---|
-| `ui/chat/ChatViewModel.kt` | vadJob tracking, 2s timed capture, replay=512, wad removed |
-| `ui/chat/ChatScreen.kt` | Waveform active only during LISTENING |
-| `tts/TtsSynthesizer.kt` | channelFlow parallel synthesis, 3-word early flush |
-| `tts/EnglishPhonemizer.kt` | CMU dict + LETTER_NAMES for acronyms |
-| `tts/KokoroEngine.kt` | loadDict() call in initialize() |
-| `app/src/main/assets/cmudict.txt` | CMU Pronouncing Dictionary 0.7b (new file, 3.5 MB) |
-| `CHANGELOG.md` | v0.5.0 entry |
+| `tts/AndroidTtsEngine.kt` | **New** — Android TTS wrapper with atomic drain detection |
+| `tts/TtsSynthesizer.kt` | Rewrote around AndroidTtsEngine; idle-token watchdog; firstTokenReceived guard |
+| `tts/KokoroEngine.kt` | **Deleted** |
+| `tts/EnglishPhonemizer.kt` | **Deleted** |
+| `tts/AudioPlayer.kt` | **Deleted** |
+| `assets/cmudict.txt` | **Deleted** |
+| `ui/chat/ChatViewModel.kt` | VAD restore, noSpeechTimeout, finalizeAllStreamingMessages, startMs on first token |
+| `ui/chat/ChatScreen.kt` | JARVIS branding, + icon, AlertDialog, time greeting, remove debug button |
+| `inference/LiteRtLmEngine.kt` | JARVIS system prompt |
+| `ui/home/HomeScreen.kt` | JARVIS title/tagline/description |
+| `res/values/strings.xml` | app_name → J.A.R.V.I.S |
+| `audio/VoiceActivityDetector.kt` | Adaptive noise floor, unified loop |
+| `CHANGELOG.md` | v0.6.0 entry |
 
 ---
 
 ## Known Issues / Next Session
 
-1. **VAD restoration** — the 2-second fixed window works but is not a natural UX. Need to tune `VoiceActivityDetector` thresholds for the test device (try lowering `energyThreshold` from `0.005f` or reducing `silenceMs` from `800ms`). Once tuned, restore `vad.detect()` in `startVoiceCapture()` and re-add `VoiceActivityDetector` to the `ChatViewModel` constructor.
+1. **TTS voice quality** — Android TTS uses the device's default voice engine (Google TTS if installed). No control over speaking rate, pitch, or voice personality beyond `TextToSpeech.setLanguage()`. If more natural speech is needed, consider a streaming TTS API or a lighter on-device model.
 
-2. **TTS startup latency** — audio starts after ~3 words + Kokoro synthesis time (~200-400ms). The floor is bounded by Kokoro's per-sentence inference speed. Options to explore: smaller synthesis chunks (1-2 words), or a streaming Kokoro approach if the ONNX model supports it.
+2. **No multi-turn voice context** — LiteRT-LM's `Conversation` object maintains text history, but each voice turn sends only the current audio clip. Prior voice turns are not re-injected as audio context.
 
-3. **Kokoro model placement** — still manual ADB push. No in-app download for Kokoro model files yet.
+3. **Watchdog timing** — `TOKEN_IDLE_MS = 1200L` works for typical responses. Very fast models or very slow token streams may need tuning. If JARVIS cuts off mid-sentence, increase this value.
 
-4. **No multi-turn voice context** — each voice turn is independent (conversation history is maintained by LiteRT-LM's `Conversation` object for text, but voice turns don't include prior turns in the audio prompt).
-
-5. **AudioFocus** — no `AudioManager.requestAudioFocus()` during TTS playback, so notifications and media can interrupt the voice response.
+4. **AudioFocus** — Android TTS manages its own audio focus. No explicit `AudioManager.requestAudioFocus()` needed, but notifications may still interrupt mid-response on some devices.

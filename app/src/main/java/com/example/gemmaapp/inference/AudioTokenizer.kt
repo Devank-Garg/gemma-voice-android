@@ -1,14 +1,17 @@
 package com.example.gemmaapp.inference
 
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import javax.inject.Inject
 import javax.inject.Singleton
 
 @Singleton
 class AudioTokenizer @Inject constructor() {
-    // Sprint 3: wraps PCM float[] into Gemma 4 multimodal audio prompt
-    // Prompt format: "<start_of_turn>user\n<audio>\n<end_of_turn>\n<start_of_turn>model\n"
-    // Audio spec: 16kHz, float32, mono, max 480_000 samples (30s)
-    fun buildPrompt(systemPrompt: String = ""): String {
-        TODO("Sprint 3")
-    }
+
+    // Gemma 4 audio spec: 16 kHz, float32 LE, mono, max 480 000 samples (30 s)
+    fun toAudioBytes(pcm: FloatArray): ByteArray =
+        ByteBuffer.allocate(pcm.size * 4).apply {
+            order(ByteOrder.LITTLE_ENDIAN)
+            pcm.forEach { putFloat(it) }
+        }.array()
 }

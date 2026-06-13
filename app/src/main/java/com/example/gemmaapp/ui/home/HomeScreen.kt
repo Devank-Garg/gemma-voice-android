@@ -94,17 +94,17 @@ fun HomeScreen(
             Spacer(Modifier.height(28.dp))
 
             Text(
-                text = "Gemma Voice",
+                text = "J.A.R.V.I.S",
                 fontSize = 36.sp,
                 fontWeight = FontWeight.Bold,
                 color = TextPrimary,
-                letterSpacing = (-0.5).sp
+                letterSpacing = 2.sp
             )
 
             Spacer(Modifier.height(10.dp))
 
             Text(
-                text = "Your private AI voice assistant",
+                text = "Just A Rather Very Intelligent System",
                 style = MaterialTheme.typography.bodyLarge,
                 color = TextSecondary,
                 textAlign = TextAlign.Center
@@ -113,7 +113,7 @@ fun HomeScreen(
             Spacer(Modifier.height(6.dp))
 
             Text(
-                text = "Runs 100% on-device  ·  No cloud  ·  No data shared",
+                text = "Fully on-device  ·  No cloud  ·  No data leaves your phone",
                 style = MaterialTheme.typography.bodySmall,
                 color = TextMuted,
                 textAlign = TextAlign.Center

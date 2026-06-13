@@ -4,11 +4,12 @@ import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.gemmaapp.audio.AudioCaptureManager
+import com.example.gemmaapp.audio.VadEvent
+import com.example.gemmaapp.audio.VoiceActivityDetector
 import com.example.gemmaapp.data.model.ChatMessage
 import com.example.gemmaapp.data.model.DownloadState
 import com.example.gemmaapp.data.repository.ModelRepository
 import com.example.gemmaapp.inference.LiteRtLmEngine
-import com.example.gemmaapp.tts.AudioPlayer
 import com.example.gemmaapp.tts.TtsSynthesizer
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -21,13 +22,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.flow.SharingStarted
-import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import java.io.File
-import java.nio.ByteBuffer
-import java.nio.ByteOrder
 import javax.inject.Inject
 
 enum class VoiceState { IDLE, LISTENING, RECORDING, PROCESSING, SPEAKING, ERROR }
@@ -38,8 +34,8 @@ class ChatViewModel @Inject constructor(
     private val engine: LiteRtLmEngine,
     private val modelRepository: ModelRepository,
     private val audioCaptureManager: AudioCaptureManager,
+    private val vad: VoiceActivityDetector,
     private val ttsSynthesizer: TtsSynthesizer,
-    private val audioPlayer: AudioPlayer,
 ) : ViewModel() {
 
     sealed class EngineState {
@@ -56,7 +52,6 @@ class ChatViewModel @Inject constructor(
         val inputText: String = "",
         val isKeyboardMode: Boolean = false,
         val backendLabel: String = "",
-        val debugStatus: String = "",
     )
 
     private val _uiState = MutableStateFlow(UiState())
@@ -96,9 +91,9 @@ class ChatViewModel @Inject constructor(
             _uiState.update { it.copy(engineState = EngineState.Loading) }
             try {
                 engine.initialize(modelPath)
-                // Kokoro init is fast (~200ms) — run alongside LLM init
+                // Android TTS init — fast, runs alongside LLM init
                 try { ttsSynthesizer.initializeEngine() } catch (e: Exception) {
-                    android.util.Log.w("ChatViewModel", "Kokoro init failed: ${e.message}")
+                    android.util.Log.w("ChatViewModel", "TTS init failed: ${e.message}")
                 }
                 _uiState.update { it.copy(engineState = EngineState.Ready, backendLabel = engine.activeBackend) }
             } catch (e: Exception) {
@@ -154,23 +149,55 @@ class ChatViewModel @Inject constructor(
     fun startVoiceCapture() {
         vadJob?.cancel()
         resetInactivityTimer()
+        // Show LISTENING immediately so the waveform appears while VAD calibrates.
         _uiState.update { it.copy(voiceState = VoiceState.LISTENING) }
         audioCaptureManager.startCapture(viewModelScope)
         vadJob = viewModelScope.launch {
-            // Fixed 2-second capture window — bypasses VAD for reliable pipeline testing.
-            // Swap back to VAD-based detect() once the full pipeline is confirmed working.
-            val chunks = mutableListOf<FloatArray>()
-            val collectJob = launch {
-                audioCaptureManager.pcmChunks().collect { chunk -> chunks.add(chunk) }
-            }
-            delay(CAPTURE_DURATION_MS)
-            collectJob.cancel()
-            audioCaptureManager.stopCapture()
+            var speechDetected = false
 
-            val pcm = chunks.flatMap { it.toList() }.toFloatArray()
-            android.util.Log.i("ChatVM", "Timed capture done: ${pcm.size} samples (${pcm.size / 16000f}s)")
-            if (pcm.isNotEmpty()) processVoiceInput(pcm)
-            else _uiState.update { it.copy(voiceState = VoiceState.IDLE) }
+            // If no speech is detected within the timeout, stop and notify the user.
+            val noSpeechJob = launch {
+                delay(NO_SPEECH_TIMEOUT_MS)
+                if (!speechDetected) {
+                    audioCaptureManager.stopCapture()
+                    val text = "I didn't catch that — could you tap the mic and try again?"
+                    val msg = ChatMessage(
+                        role = ChatMessage.Role.ASSISTANT,
+                        text = text,
+                        isStreaming = false,
+                    )
+                    _uiState.update { it.copy(messages = it.messages + msg, voiceState = VoiceState.IDLE) }
+                    ttsSynthesizer.announce(text)
+                    vadJob?.cancel()
+                }
+            }
+
+            try {
+                vad.detect(audioCaptureManager.pcmChunks()).collect { event ->
+                    when (event) {
+                        is VadEvent.SpeechStart -> {
+                            speechDetected = true
+                            noSpeechJob.cancel()
+                            android.util.Log.i("ChatVM", "VAD: speech started")
+                        }
+                        is VadEvent.SpeechEnd -> {
+                            noSpeechJob.cancel()
+                            audioCaptureManager.stopCapture()
+                            android.util.Log.i("ChatVM", "VAD: speech end, ${event.pcm.size} samples (${event.pcm.size / 16000f}s)")
+                            vadJob?.cancel()
+                            processVoiceInput(event.pcm)
+                        }
+                        is VadEvent.Timeout -> {
+                            noSpeechJob.cancel()
+                            audioCaptureManager.stopCapture()
+                            android.util.Log.i("ChatVM", "VAD: clip too short, returning to idle")
+                            _uiState.update { it.copy(voiceState = VoiceState.IDLE) }
+                        }
+                    }
+                }
+            } finally {
+                noSpeechJob.cancel()
+            }
         }
     }
 
@@ -178,7 +205,7 @@ class ChatViewModel @Inject constructor(
         vadJob?.cancel()
         vadJob = null
         audioCaptureManager.stopCapture()
-        audioPlayer.stop()
+        ttsSynthesizer.stop()
         _uiState.update { it.copy(voiceState = VoiceState.IDLE) }
     }
 
@@ -187,42 +214,49 @@ class ChatViewModel @Inject constructor(
             android.util.Log.w("ChatVM", "processVoiceInput: engine not ready, skipping")
             return
         }
+        // Defensive: finalize any previous turn's message that got stuck streaming
+        // (LiteRT-LM sendMessageAsync is a hot stream that never emits completion,
+        // so the tokenFlow.collect loop below won't return — finalization must happen
+        // via the TTS onDone callback instead).
+        finalizeAllStreamingMessages()
+
         resetInactivityTimer()
         android.util.Log.i("ChatVM", "processVoiceInput: ${pcm.size} samples (${pcm.size / 16000f}s)")
 
         val placeholder = ChatMessage(role = ChatMessage.Role.ASSISTANT, text = "", isStreaming = true)
-        _uiState.update { it.copy(messages = it.messages, voiceState = VoiceState.PROCESSING) }
+        _uiState.update { it.copy(messages = it.messages + placeholder, voiceState = VoiceState.PROCESSING) }
 
         viewModelScope.launch {
-            val startMs = System.currentTimeMillis()
+            var startMs = 0L   // reset on first token so tok/s excludes audio-processing latency
             var tokenCount = 0
             var accumulated = ""
 
             try {
-                // Share the token flow so TTS and UI can both consume it.
-                // replay = 512 ensures the UI collector sees tokens emitted before it subscribes.
                 val tokenFlow = engine.sendAudio(pcm)
                     .shareIn(viewModelScope, SharingStarted.Eagerly, replay = 512)
 
-                _uiState.update { it.copy(messages = it.messages + placeholder, voiceState = VoiceState.SPEAKING) }
+                _uiState.update { it.copy(voiceState = VoiceState.SPEAKING) }
 
-                // Start TTS streaming playback
-                audioPlayer.play(
-                    pcmChunks = ttsSynthesizer.synthesizeStream(tokenFlow),
-                    scope = viewModelScope,
-                    onDone = { _uiState.update { it.copy(voiceState = VoiceState.IDLE) } }
-                )
+                // Pipe tokens → Android TTS. onDone is the reliable completion signal
+                // because sendMessageAsync never terminates the flow. We finalize the
+                // message here, after all tokens have been queued for TTS playback.
+                launch {
+                    ttsSynthesizer.synthesizeAndPlay(tokenFlow) {
+                        finalizeAssistantMessage(accumulated, tokenCount, startMs)
+                        _uiState.update { it.copy(voiceState = VoiceState.IDLE) }
+                    }
+                }
 
-                // Simultaneously update chat UI with streaming text
+                // Update the chat bubble as tokens arrive. This loop doesn't complete
+                // (sendMessageAsync never closes the stream) but that's OK — finalization
+                // is handled by the TTS onDone callback above.
                 tokenFlow.collect { chunk ->
+                    if (startMs == 0L) startMs = System.currentTimeMillis()
                     accumulated += chunk
                     tokenCount++
                     val tps = tokenCount / ((System.currentTimeMillis() - startMs) / 1000f).coerceAtLeast(0.001f)
                     patchStreamingMessage(accumulated, tokenCount, tps)
                 }
-
-                finalizeAssistantMessage(accumulated, tokenCount, startMs)
-                android.util.Log.i("ChatVM", "Voice response done: $tokenCount tokens")
             } catch (e: Exception) {
                 android.util.Log.e("ChatVM", "processVoiceInput failed", e)
                 finalizeAssistantMessage(accumulated.ifEmpty { "[Error: ${e.message}]" }, tokenCount, startMs)
@@ -261,80 +295,33 @@ class ChatViewModel @Inject constructor(
         }
     }
 
-    fun recordDebugAudio() {
-        if (_uiState.value.debugStatus == "Recording…") return
-        val hasPermission = android.content.pm.PackageManager.PERMISSION_GRANTED ==
-            androidx.core.content.ContextCompat.checkSelfPermission(
-                appContext, android.Manifest.permission.RECORD_AUDIO
-            )
-        if (!hasPermission) {
-            _uiState.update { it.copy(debugStatus = "Need mic permission first") }
-            return
-        }
-        _uiState.update { it.copy(debugStatus = "Recording…") }
-        viewModelScope.launch {
-            try {
-                audioCaptureManager.startCapture(viewModelScope)
-                // Collect ~5 s of audio (5000 ms / 64 ms per chunk ≈ 78 chunks)
-                val chunks = mutableListOf<FloatArray>()
-                audioCaptureManager.pcmChunks()
-                    .take(78)
-                    .collect { chunk -> chunks.add(chunk) }
-                audioCaptureManager.stopCapture()
-
-                val allSamples = chunks.flatMap { it.toList() }.toFloatArray()
-                val outFile = appContext.getExternalFilesDir(null)?.resolve("debug_audio.wav")
-                if (outFile == null) {
-                    _uiState.update { it.copy(debugStatus = "ERROR: no storage") }
-                    return@launch
-                }
-                withContext(Dispatchers.IO) { writeWav(outFile, allSamples, sampleRate = 16_000) }
-                _uiState.update { it.copy(debugStatus = "Saved (${allSamples.size} samples)") }
-                android.util.Log.i("DebugAudio", "Saved ${allSamples.size} samples → ${outFile.absolutePath}")
-            } catch (e: Exception) {
-                audioCaptureManager.stopCapture()
-                _uiState.update { it.copy(debugStatus = "ERROR: ${e.message}") }
-                android.util.Log.e("DebugAudio", "Recording failed", e)
+    // Clears isStreaming on every assistant message. Called at the start of a new
+    // voice turn to unstick any message whose finalization was skipped because
+    // the LiteRT-LM flow never emitted a completion signal.
+    private fun finalizeAllStreamingMessages() {
+        _uiState.update { state ->
+            val msgs = state.messages.map { msg ->
+                if (msg.role == ChatMessage.Role.ASSISTANT && msg.isStreaming)
+                    msg.copy(isStreaming = false)
+                else msg
             }
+            state.copy(messages = msgs)
         }
     }
 
-    private fun writeWav(file: File, samples: FloatArray, sampleRate: Int) {
-        val dataBytes = samples.size * 4
-        val totalBytes = 44 + dataBytes
-        val buf = ByteBuffer.allocate(totalBytes).order(ByteOrder.LITTLE_ENDIAN)
-        // RIFF header
-        buf.put("RIFF".toByteArray())
-        buf.putInt(totalBytes - 8)
-        buf.put("WAVE".toByteArray())
-        // fmt chunk (IEEE float PCM)
-        buf.put("fmt ".toByteArray())
-        buf.putInt(16)          // chunk size
-        buf.putShort(3)         // format = IEEE_FLOAT
-        buf.putShort(1)         // channels
-        buf.putInt(sampleRate)
-        buf.putInt(sampleRate * 4) // byte rate
-        buf.putShort(4)         // block align
-        buf.putShort(32)        // bits per sample
-        // data chunk
-        buf.put("data".toByteArray())
-        buf.putInt(dataBytes)
-        samples.forEach { buf.putFloat(it) }
-        file.writeBytes(buf.array())
-    }
 
     override fun onCleared() {
         super.onCleared()
         vadJob?.cancel()
         inactivityJob?.cancel()
         audioCaptureManager.stopCapture()
-        audioPlayer.stop()
+        ttsSynthesizer.stop()
         engine.close()
         ttsSynthesizer.closeEngine()
     }
 
     companion object {
-        private const val INACTIVITY_TIMEOUT_MS = 10 * 60 * 1000L // 10 minutes
-        private const val CAPTURE_DURATION_MS = 2_000L             // fixed recording window
+        private const val INACTIVITY_TIMEOUT_MS  = 10 * 60 * 1000L // 10 minutes
+        private const val NO_SPEECH_TIMEOUT_MS   = 8_000L          // give up listening after 8 s of silence
     }
 }

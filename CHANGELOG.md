@@ -9,6 +9,36 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [0.6.0] — 2026-06-13 — JARVIS Rebrand + Android TTS + VAD Restoration
+
+### Changed
+- **App rebranded as J.A.R.V.I.S** — app name, system prompt, all UI strings updated to Iron Man JARVIS persona; model speaks as "J.A.R.V.I.S" and addresses user as "sir"
+- **TTS replaced: Kokoro ONNX → Android TextToSpeech** — eliminates 200–400ms per-sentence synthesis latency; first audio now starts within ~30ms of tokens arriving
+- **`TtsSynthesizer`** — rewrote around `AndroidTtsEngine`; `synthesizeAndPlay()` streams tokens to Android TTS with early-first-chunk (3 words) and sentence-boundary flushing
+- **`TtsSynthesizer.synthesizeAndPlay()`** — added idle-token watchdog (`TOKEN_IDLE_MS = 1200L`): since `sendMessageAsync` never closes its flow, a coroutine polls every 150ms and exits once 1200ms passes with no new token; does not start countdown until first token arrives (avoids premature exit during audio preprocessing)
+- **tok/s metric** — `startMs` now resets on the first token in `processVoiceInput()`, so the displayed speed reflects actual generation throughput rather than being diluted by audio-processing latency
+- **VAD restored** — replaced fixed 2-second capture window with adaptive noise floor VAD: 500ms ambient calibration → threshold = `max(0.01f, ambientRms × 3.5f)`; silence window 900ms, min speech 200ms
+- **8-second no-speech timeout** — if VAD detects no speech within 8s, microphone stops and JARVIS speaks/shows "I didn't catch that — could you tap the mic and try again?"
+- **Chat UI — J.A.R.V.I.S branding** — app bar title, bubble labels, status labels, empty state all updated; `⋮` menu replaced with `+` icon (Add) opening a "New Thread" confirmation dialog
+- **Empty state greeting** — dynamic time-based greeting: morning / afternoon / evening / night based on `Calendar.HOUR_OF_DAY`
+- **Home screen** — title, tagline, and description updated to JARVIS branding
+
+### Removed
+- `KokoroEngine.kt` — Kokoro ONNX TTS engine (replaced by Android TTS)
+- `EnglishPhonemizer.kt` — text→phoneme converter (no longer needed)
+- `AudioPlayer.kt` — AudioTrack-based playback (Android TTS manages its own output)
+- `app/src/main/assets/cmudict.txt` — CMU Pronouncing Dictionary (135k lines, no longer needed)
+- Debug "REC 5s" button removed from voice bar
+
+### Added
+- `tts/AndroidTtsEngine.kt` — Android `TextToSpeech` wrapper with `pendingCount` + `sealed` atomic drain detection; `sealQueue(callback)` fires after last utterance completes
+
+### Fixed
+- **Cursor/streaming indicator stuck after response** — `synthesizeAndPlay` previously called `textTokens.collect {}` which never returned (hot stream); `sealQueue(onDone)` was unreachable, so `finalizeAssistantMessage` and `VoiceState.IDLE` never fired. Fixed by idle-token watchdog exiting the collect loop.
+- **`isStreaming` persisting on old messages** — `finalizeAllStreamingMessages()` called defensively at the start of each new voice turn
+
+---
+
 ## [0.5.0] — 2026-05-15 — Voice Pipeline Stability + TTS Quality
 
 ### Fixed
