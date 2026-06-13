@@ -9,6 +9,31 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [0.7.0] — 2026-06-13 — Voice Mode UI + System Prompt Polish
+
+### Added
+- **`VoiceModeScreen`** (`ui/voice/VoiceModeScreen.kt`) — full-screen arc-reactor voice UI replacing chat bubbles when in voice mode
+  - 4 animated states: IDLE (slow pulse + drifting arc), LISTENING (rotating gradient arc + waveform bars), PROCESSING (dual counter-rotating arcs + orbiting particles), SPEAKING (staggered ripple rings)
+  - Arc reactor core: layered coil segments, radial gradient, structural rings, bright center highlight
+  - "INITIALIZING…" label + disabled orb tap while engine is loading — no silent failures
+  - Keyboard icon (top-left) switches to text/history mode; power button ends session
+  - Transcript display removed — clean voice-only experience with no text bleed-through
+
+### Changed
+- **`ChatScreen`** — voice mode branch uses proper `if-else` instead of early `return` (Compose slot-table anti-pattern that caused `voiceState` updates to not propagate, freezing the UI on LISTENING)
+- **System prompt** — `J.A.R.V.I.S.` → `JARVIS` so Android TTS pronounces it as a word, not individual letters
+- **System prompt** — "sir" usage constrained: only at the very start of a reply when natural, never mid-sentence or repeatedly; most replies have no "sir"
+
+### Fixed
+- **LISTENING state frozen** — early `return` in `@Composable` corrupted Compose's slot table; voiceState changes from ViewModel never triggered recomposition. Fixed with `if-else` branch.
+- **TTS spelling out "J.A.R.V.I.S"** — dots caused TTS to read each letter; changed to `JARVIS` in system prompt
+- **Repetitive "sir"** — LLM was using it in nearly every sentence; tightened constraint in system prompt
+
+### Known Issues / Next
+- **Interrupt-to-speak** — user cannot interrupt JARVIS mid-response; they must wait for TTS to finish before speaking. Planned: detect mic tap during SPEAKING state → call `ttsSynthesizer.stop()` + `engine.resetConversation()` (optional) → immediately start new voice capture
+
+---
+
 ## [0.6.0] — 2026-06-13 — JARVIS Rebrand + Android TTS + VAD Restoration
 
 ### Changed

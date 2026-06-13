@@ -90,6 +90,7 @@ import com.example.gemmaapp.ui.theme.CardDark
 import com.example.gemmaapp.ui.theme.ErrorRed
 import com.example.gemmaapp.ui.theme.SuccessGreen
 import com.example.gemmaapp.ui.theme.TextMuted
+import com.example.gemmaapp.ui.theme.TextPrimary
 import com.example.gemmaapp.ui.theme.TextSecondary
 import androidx.compose.runtime.withFrameMillis
 import com.mikepenz.markdown.m3.Markdown
@@ -127,129 +128,148 @@ fun ChatScreen(
         }
     }
 
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(BackgroundDark)
-    ) {
-        AmbientGlow()
+    if (!uiState.isKeyboardMode) {
+        // ── Voice mode: full-screen orb ──────────────────────────────
+        com.example.gemmaapp.ui.voice.VoiceModeScreen(
+            voiceState = uiState.voiceState,
+            engineReady = uiState.engineState is ChatViewModel.EngineState.Ready,
+            onOrbTap = {
+                when (uiState.voiceState) {
+                    VoiceState.IDLE, VoiceState.ERROR -> {
+                        val hasPermission = ContextCompat.checkSelfPermission(
+                            context, Manifest.permission.RECORD_AUDIO
+                        ) == PackageManager.PERMISSION_GRANTED
+                        if (hasPermission) viewModel.startVoiceCapture()
+                        else micPermLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                    }
+                    else -> viewModel.stopVoiceCapture()
+                }
+            },
+            onEndSession = onBack,
+            onToggleKeyboard = viewModel::toggleKeyboardMode,
+        )
+    } else {
+        // ── Text / history mode ──────────────────────────────────────
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(BackgroundDark)
+        ) {
+            AmbientGlow()
 
-        Column(modifier = Modifier.fillMaxSize()) {
-            ChatAppBar(
-                engineState = uiState.engineState,
-                backendLabel = uiState.backendLabel,
-                onBack = onBack,
-                onMenuClick = { showNewThreadDialog = true },
-            )
+            Column(modifier = Modifier.fillMaxSize()) {
+                ChatAppBar(
+                    engineState = uiState.engineState,
+                    backendLabel = uiState.backendLabel,
+                    onBack = onBack,
+                    onMenuClick = { showNewThreadDialog = true },
+                )
 
-            LazyColumn(
-                state = listState,
-                modifier = Modifier.weight(1f),
-                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp),
-            ) {
-                if (uiState.messages.isEmpty()) {
-                    item { EmptyState() }
-                } else {
-                    // Group messages by date and insert dividers
-                    val grouped = uiState.messages.groupByDate()
-                    grouped.forEach { (date, msgs) ->
-                        item(key = "divider_$date") { DateDivider(label = date) }
-                        items(msgs, key = { it.id }) { msg ->
-                            if (msg.role == ChatMessage.Role.USER) {
-                                UserBubble(message = msg)
-                            } else {
-                                AssistantBubble(message = msg)
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier.weight(1f),
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp),
+                ) {
+                    if (uiState.messages.isEmpty()) {
+                        item { EmptyState() }
+                    } else {
+                        val grouped = uiState.messages.groupByDate()
+                        grouped.forEach { (date, msgs) ->
+                            item(key = "divider_$date") { DateDivider(label = date) }
+                            items(msgs, key = { it.id }) { msg ->
+                                if (msg.role == ChatMessage.Role.USER) {
+                                    UserBubble(message = msg)
+                                } else {
+                                    AssistantBubble(message = msg)
+                                }
                             }
                         }
+                        if (uiState.voiceState == VoiceState.PROCESSING && uiState.messages.last().role == ChatMessage.Role.USER) {
+                            item { ThinkingIndicator() }
+                        }
                     }
-                    if (uiState.voiceState == VoiceState.PROCESSING && uiState.messages.last().role == ChatMessage.Role.USER) {
-                        item { ThinkingIndicator() }
+                }
+
+                Column(modifier = Modifier.imePadding()) {
+                    BottomBar(
+                        uiState = uiState,
+                        onInput = viewModel::updateInput,
+                        onSend = viewModel::sendTextMessage,
+                        onToggleKeyboard = viewModel::toggleKeyboardMode,
+                        onMicClick = {
+                            if (uiState.voiceState == VoiceState.LISTENING) {
+                                viewModel.stopVoiceCapture()
+                            } else {
+                                val hasPermission = ContextCompat.checkSelfPermission(
+                                    context, Manifest.permission.RECORD_AUDIO
+                                ) == PackageManager.PERMISSION_GRANTED
+                                if (hasPermission) viewModel.startVoiceCapture()
+                                else micPermLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                            }
+                        },
+                    )
+
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .navigationBarsPadding()
+                            .height(24.dp)
+                            .background(BackgroundDark),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(width = 108.dp, height = 4.dp)
+                                .background(Color.White.copy(alpha = 0.5f), RoundedCornerShape(2.dp))
+                        )
                     }
                 }
             }
 
-            Column(modifier = Modifier.imePadding()) {
-                BottomBar(
-                    uiState = uiState,
-                    onInput = viewModel::updateInput,
-                    onSend = viewModel::sendTextMessage,
-                    onToggleKeyboard = viewModel::toggleKeyboardMode,
-                    onMicClick = {
-                        if (uiState.voiceState == VoiceState.LISTENING) {
-                            viewModel.stopVoiceCapture()
-                        } else {
-                            val hasPermission = ContextCompat.checkSelfPermission(
-                                context, Manifest.permission.RECORD_AUDIO
-                            ) == PackageManager.PERMISSION_GRANTED
-                            if (hasPermission) viewModel.startVoiceCapture()
-                            else micPermLauncher.launch(Manifest.permission.RECORD_AUDIO)
+            if (showNewThreadDialog) {
+                AlertDialog(
+                    onDismissRequest = { showNewThreadDialog = false },
+                    containerColor = Color(0xFF111827),
+                    titleContentColor = Color.White,
+                    textContentColor = TextSecondary,
+                    title = {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.RestartAlt,
+                                contentDescription = null,
+                                tint = BrandPurple,
+                                modifier = Modifier.size(20.dp),
+                            )
+                            Text("New Thread", fontWeight = FontWeight.Bold)
+                        }
+                    },
+                    text = { Text("This will clear the current conversation. Gemma's memory of this session will be lost.") },
+                    confirmButton = {
+                        TextButton(onClick = {
+                            viewModel.clearConversation()
+                            showNewThreadDialog = false
+                        }) {
+                            Text(
+                                "New Thread",
+                                style = TextStyle(brush = gradientBrush, fontWeight = FontWeight.SemiBold),
+                            )
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { showNewThreadDialog = false }) {
+                            Text("Cancel", color = TextMuted)
                         }
                     },
                 )
-
-                // Home gesture indicator
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .navigationBarsPadding()
-                        .height(24.dp)
-                        .background(BackgroundDark),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(width = 108.dp, height = 4.dp)
-                            .background(Color.White.copy(alpha = 0.5f), RoundedCornerShape(2.dp))
-                    )
-                }
             }
-        }
 
-        // New Thread confirmation dialog
-        if (showNewThreadDialog) {
-            AlertDialog(
-                onDismissRequest = { showNewThreadDialog = false },
-                containerColor = Color(0xFF111827),
-                titleContentColor = Color.White,
-                textContentColor = TextSecondary,
-                title = {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.RestartAlt,
-                            contentDescription = null,
-                            tint = BrandPurple,
-                            modifier = Modifier.size(20.dp),
-                        )
-                        Text("New Thread", fontWeight = FontWeight.Bold)
-                    }
-                },
-                text = { Text("This will clear the current conversation. Gemma's memory of this session will be lost.") },
-                confirmButton = {
-                    TextButton(onClick = {
-                        viewModel.clearConversation()
-                        showNewThreadDialog = false
-                    }) {
-                        Text(
-                            "New Thread",
-                            style = TextStyle(brush = gradientBrush, fontWeight = FontWeight.SemiBold),
-                        )
-                    }
-                },
-                dismissButton = {
-                    TextButton(onClick = { showNewThreadDialog = false }) {
-                        Text("Cancel", color = TextMuted)
-                    }
-                },
-            )
-        }
-
-        // Engine loading overlay
-        if (uiState.engineState is ChatViewModel.EngineState.Loading) {
-            EngineLoadingOverlay()
+            if (uiState.engineState is ChatViewModel.EngineState.Loading) {
+                EngineLoadingOverlay()
+            }
         }
     }
 }
