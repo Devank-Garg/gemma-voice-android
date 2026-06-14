@@ -55,8 +55,13 @@ import com.example.gemmaapp.ui.theme.TextPrimary
 import com.example.gemmaapp.ui.theme.TextSecondary
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sin
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameMillis
+import androidx.compose.ui.graphics.StrokeCap
 
 @Composable
 fun VoiceModeScreen(
@@ -97,16 +102,42 @@ fun VoiceModeScreen(
     val procInner    by inf.animateFloat(360f, 0f, infiniteRepeatable(tween(1500,  easing = LinearEasing)), label = "procInner")
     val p1Angle      by inf.animateFloat(0f, 360f, infiniteRepeatable(tween(2400,  easing = LinearEasing)), label = "p1")
     val p2Angle      by inf.animateFloat(0f, -360f,infiniteRepeatable(tween(1900,  easing = LinearEasing)), label = "p2")
+    val p3Angle      by inf.animateFloat(0f, 360f, infiniteRepeatable(tween(3100,  easing = LinearEasing)), label = "p3")
+    val p4Angle      by inf.animateFloat(360f, 0f,  infiniteRepeatable(tween(2700,  easing = LinearEasing)), label = "p4")
+    val p5Angle      by inf.animateFloat(0f, 360f, infiniteRepeatable(tween(3600,  easing = LinearEasing)), label = "p5")
 
-    // Ripple rings for SPEAKING — staggered with Animatable + delay
+    // IDLE: orbit particles + breathing rings
+    val idleOrbit1   by inf.animateFloat(0f, 360f, infiniteRepeatable(tween(14000, easing = LinearEasing)), label = "io1")
+    val idleOrbit2   by inf.animateFloat(360f, 0f, infiniteRepeatable(tween(19000, easing = LinearEasing)), label = "io2")
+    val idleOrbit3   by inf.animateFloat(0f, 360f, infiniteRepeatable(tween(9000,  easing = LinearEasing)), label = "io3")
+    val idleRingA    by inf.animateFloat(0.10f, 0.38f, infiniteRepeatable(tween(2800, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "ira")
+    val idleRingB    by inf.animateFloat(0.05f, 0.22f, infiniteRepeatable(tween(4100, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "irb")
+    val idleRingC    by inf.animateFloat(0.03f, 0.15f, infiniteRepeatable(tween(5600, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "irc")
+
+    // PROCESSING: dotted ring rotation + segment pulse
+    val procDots     by inf.animateFloat(0f, 360f, infiniteRepeatable(tween(3800,  easing = LinearEasing)), label = "dots")
+    val segPulse     by inf.animateFloat(0.3f, 0.8f, infiniteRepeatable(tween(600,  easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "seg")
+
+    // Ripple rings for SPEAKING — 5 staggered
     val ripple1 = remember { Animatable(0f) }
     val ripple2 = remember { Animatable(0f) }
     val ripple3 = remember { Animatable(0f) }
+    val ripple4 = remember { Animatable(0f) }
+    val ripple5 = remember { Animatable(0f) }
+
+    // Frame clocks for circular waveforms
+    var listenFrame by remember { mutableLongStateOf(0L) }
+    var speakFrame  by remember { mutableLongStateOf(0L) }
+    LaunchedEffect(isListening) { if (isListening) while (true) { withFrameMillis { listenFrame = it } } }
+
     LaunchedEffect(voiceState) {
         if (isSpeaking) {
-            launch { while (true) { ripple1.snapTo(0f); ripple1.animateTo(1f, tween(2600, easing = LinearEasing)) } }
-            launch { delay(870);  while (true) { ripple2.snapTo(0f); ripple2.animateTo(1f, tween(2600, easing = LinearEasing)) } }
-            launch { delay(1730); while (true) { ripple3.snapTo(0f); ripple3.animateTo(1f, tween(2600, easing = LinearEasing)) } }
+            launch { while (true) { ripple1.snapTo(0f); ripple1.animateTo(1f, tween(2200, easing = LinearEasing)) } }
+            launch { delay(440);  while (true) { ripple2.snapTo(0f); ripple2.animateTo(1f, tween(2200, easing = LinearEasing)) } }
+            launch { delay(880);  while (true) { ripple3.snapTo(0f); ripple3.animateTo(1f, tween(2200, easing = LinearEasing)) } }
+            launch { delay(1320); while (true) { ripple4.snapTo(0f); ripple4.animateTo(1f, tween(2200, easing = LinearEasing)) } }
+            launch { delay(1760); while (true) { ripple5.snapTo(0f); ripple5.animateTo(1f, tween(2200, easing = LinearEasing)) } }
+            while (true) { withFrameMillis { speakFrame = it } }
         }
     }
 
@@ -219,115 +250,173 @@ fun VoiceModeScreen(
                             )
                         }
 
-                        // IDLE: static guide ring + slow drifting arc
+                        // IDLE: 3 breathing concentric rings + drifting arc + 5 orbit particles
                         if (isIdle) {
-                            Canvas(modifier = Modifier.size(218.dp)) {
-                                drawCircle(BrandPurple.copy(alpha = 0.32f), style = Stroke(1.dp.toPx()))
+                            // Outer breathing rings
+                            Canvas(modifier = Modifier.size(278.dp)) {
+                                drawCircle(BrandCyan.copy(alpha = idleRingC), style = Stroke(1.dp.toPx()))
                             }
-                            Canvas(
-                                modifier = Modifier
-                                    .size(218.dp)
-                                    .graphicsLayer { rotationZ = idleArcRot }
-                            ) {
+                            Canvas(modifier = Modifier.size(248.dp)) {
+                                drawCircle(BrandPurple.copy(alpha = idleRingB), style = Stroke(1.dp.toPx()))
+                            }
+                            Canvas(modifier = Modifier.size(218.dp)) {
+                                drawCircle(BrandPurple.copy(alpha = idleRingA), style = Stroke(1.5.dp.toPx()))
+                            }
+                            // Drifting arc
+                            Canvas(modifier = Modifier.size(218.dp).graphicsLayer { rotationZ = idleArcRot }) {
                                 drawCircle(
                                     brush = Brush.sweepGradient(
                                         0f to Color.Transparent,
-                                        0.17f to BrandCyan.copy(alpha = 0.85f),
+                                        0.17f to BrandCyan.copy(alpha = 0.9f),
                                         0.33f to Color.Transparent,
                                         1f to Color.Transparent
                                     ),
-                                    style = Stroke(2.dp.toPx())
+                                    style = Stroke(2.5.dp.toPx())
                                 )
+                            }
+                            // 5 orbiting particles at 3 radii
+                            Canvas(modifier = Modifier.size(300.dp)) {
+                                fun dot(deg: Float, orbitR: Float, sz: Float, col: Color, a: Float) {
+                                    val ang = Math.toRadians(deg.toDouble())
+                                    val p = Offset(center.x + cos(ang).toFloat() * orbitR, center.y + sin(ang).toFloat() * orbitR)
+                                    drawCircle(col.copy(alpha = a * 0.35f), radius = sz * 2.2f, center = p)
+                                    drawCircle(col.copy(alpha = a), radius = sz, center = p)
+                                }
+                                dot(idleOrbit1,        128.dp.toPx(), 3.5.dp.toPx(), BrandCyan,   0.75f)
+                                dot(idleOrbit1 + 120f, 128.dp.toPx(), 2.5.dp.toPx(), BrandPurple, 0.60f)
+                                dot(idleOrbit1 + 240f, 128.dp.toPx(), 3.0.dp.toPx(), BrandCyan,   0.50f)
+                                dot(idleOrbit2,        108.dp.toPx(), 2.0.dp.toPx(), BrandPurple, 0.70f)
+                                dot(idleOrbit3,        148.dp.toPx(), 2.0.dp.toPx(), BrandCyan,   0.45f)
                             }
                         }
 
-                        // LISTENING: rotating gradient arc
+                        // LISTENING: rotating arc + circular polar waveform
                         if (isListening) {
                             Canvas(modifier = Modifier.size(218.dp)) {
-                                drawCircle(BrandCyan.copy(alpha = 0.25f), style = Stroke(1.dp.toPx()))
+                                drawCircle(BrandCyan.copy(alpha = 0.20f), style = Stroke(1.dp.toPx()))
                             }
-                            Canvas(
-                                modifier = Modifier
-                                    .size(244.dp)
-                                    .graphicsLayer { rotationZ = listenArcRot }
-                            ) {
+                            Canvas(modifier = Modifier.size(256.dp).graphicsLayer { rotationZ = listenArcRot }) {
                                 drawCircle(
                                     brush = Brush.sweepGradient(
                                         0f    to Color.Transparent,
-                                        0.22f to BrandCyan,
-                                        0.53f to BrandPurple,
-                                        0.83f to Color.Transparent,
+                                        0.20f to BrandCyan,
+                                        0.50f to BrandPurple,
+                                        0.80f to Color.Transparent,
                                         1f    to Color.Transparent
                                     ),
-                                    style = Stroke(6.dp.toPx())
+                                    style = Stroke(8.dp.toPx())
                                 )
+                            }
+                            // Circular polar waveform: 48 bars radiating from orb edge
+                            Canvas(modifier = Modifier.size(300.dp)) {
+                                val bars = 48
+                                val orbR = 95.dp.toPx()
+                                val t = listenFrame
+                                for (i in 0 until bars) {
+                                    val angle = (i.toFloat() / bars) * 2f * PI.toFloat()
+                                    val wave = sin(t / 700.0 + angle * 4.0).toFloat()
+                                    val barLen = (wave * 0.5f + 0.5f) * 22.dp.toPx() + 5.dp.toPx()
+                                    val frac = i.toFloat() / bars
+                                    val col = androidx.compose.ui.graphics.lerp(BrandPurple, BrandCyan, frac)
+                                    val alpha = 0.55f + 0.35f * (wave * 0.5f + 0.5f)
+                                    drawLine(
+                                        color = col.copy(alpha = alpha),
+                                        start = Offset(center.x + cos(angle) * orbR, center.y + sin(angle) * orbR),
+                                        end   = Offset(center.x + cos(angle) * (orbR + barLen), center.y + sin(angle) * (orbR + barLen)),
+                                        strokeWidth = 3.dp.toPx(),
+                                        cap = StrokeCap.Round
+                                    )
+                                }
                             }
                         }
 
-                        // PROCESSING: dual counter-rotating arcs + particles
+                        // PROCESSING: triple arcs + dotted ring + 5 particles
                         if (isProcessing) {
-                            Canvas(
-                                modifier = Modifier
-                                    .size(250.dp)
-                                    .graphicsLayer { rotationZ = procOuter }
-                            ) {
+                            Canvas(modifier = Modifier.size(268.dp).graphicsLayer { rotationZ = procOuter }) {
                                 drawCircle(
                                     brush = Brush.sweepGradient(
                                         0f    to Color.Transparent,
-                                        0.33f to BrandPurple,
-                                        0.61f to Color.Transparent,
-                                        1f    to Color.Transparent
-                                    ),
-                                    style = Stroke(4.dp.toPx())
-                                )
-                            }
-                            Canvas(
-                                modifier = Modifier
-                                    .size(214.dp)
-                                    .graphicsLayer { rotationZ = procInner }
-                            ) {
-                                drawCircle(
-                                    brush = Brush.sweepGradient(
-                                        0f    to Color.Transparent,
-                                        0.31f to BrandCyan,
+                                        0.30f to BrandPurple,
                                         0.58f to Color.Transparent,
                                         1f    to Color.Transparent
                                     ),
-                                    style = Stroke(4.dp.toPx())
+                                    style = Stroke(5.dp.toPx())
                                 )
                             }
-                            // Orbiting particles
-                            Canvas(modifier = Modifier.size(236.dp)) {
-                                val r1 = size.width / 2f
-                                val a1 = Math.toRadians(p1Angle.toDouble())
-                                val pos1 = Offset(center.x + r1 * cos(a1).toFloat(), center.y + r1 * sin(a1).toFloat())
-                                drawCircle(BrandCyan.copy(alpha = 0.6f), radius = 12.dp.toPx(), center = pos1)
-                                drawCircle(BrandCyan, radius = 4.5.dp.toPx(), center = pos1)
+                            Canvas(modifier = Modifier.size(230.dp).graphicsLayer { rotationZ = procInner }) {
+                                drawCircle(
+                                    brush = Brush.sweepGradient(
+                                        0f    to Color.Transparent,
+                                        0.28f to BrandCyan,
+                                        0.55f to Color.Transparent,
+                                        1f    to Color.Transparent
+                                    ),
+                                    style = Stroke(5.dp.toPx())
+                                )
                             }
-                            Canvas(modifier = Modifier.size(200.dp)) {
-                                val r2 = size.width / 2f
-                                val a2 = Math.toRadians(p2Angle.toDouble())
-                                val pos2 = Offset(center.x + r2 * cos(a2).toFloat(), center.y + r2 * sin(a2).toFloat())
-                                drawCircle(BrandPurple.copy(alpha = 0.5f), radius = 9.dp.toPx(), center = pos2)
-                                drawCircle(BrandPurple, radius = 3.5.dp.toPx(), center = pos2)
+                            // Dotted ring (16 evenly spaced dots rotating)
+                            Canvas(modifier = Modifier.size(300.dp)) {
+                                val dotCount = 16
+                                val ringR = 148.dp.toPx()
+                                for (i in 0 until dotCount) {
+                                    val ang = Math.toRadians((procDots + i * (360f / dotCount)).toDouble())
+                                    val p = Offset(center.x + cos(ang).toFloat() * ringR, center.y + sin(ang).toFloat() * ringR)
+                                    val col = if (i % 2 == 0) BrandCyan else BrandPurple
+                                    drawCircle(col.copy(alpha = 0.25f), radius = 5.dp.toPx(), center = p)
+                                    drawCircle(col.copy(alpha = 0.80f), radius = 2.5.dp.toPx(), center = p)
+                                }
+                            }
+                            // 5 orbiting particles
+                            Canvas(modifier = Modifier.size(300.dp)) {
+                                fun particle(deg: Float, orbitDp: Float, sz: Float, col: Color) {
+                                    val ang = Math.toRadians(deg.toDouble())
+                                    val r = orbitDp.dp.toPx()
+                                    val p = Offset(center.x + cos(ang).toFloat() * r, center.y + sin(ang).toFloat() * r)
+                                    drawCircle(col.copy(alpha = 0.45f), radius = sz * 2.5f, center = p)
+                                    drawCircle(col, radius = sz, center = p)
+                                }
+                                particle(p1Angle, 118f, 4.5.dp.toPx(), BrandCyan)
+                                particle(p2Angle, 98f,  3.5.dp.toPx(), BrandPurple)
+                                particle(p3Angle, 138f, 3.0.dp.toPx(), BrandCyan)
+                                particle(p4Angle, 108f, 4.0.dp.toPx(), BrandPurple)
+                                particle(p5Angle, 125f, 2.5.dp.toPx(), BrandCyan)
                             }
                         }
 
-                        // SPEAKING: 3 staggered ripple rings
+                        // SPEAKING: 5 ripple rings + circular radial pulse
                         if (isSpeaking) {
                             Canvas(modifier = Modifier.size(300.dp)) {
                                 val baseR = 94.dp.toPx()
-                                fun ripple(progress: Float, baseAlpha: Float, color: Color) {
-                                    if (progress <= 0f) return
-                                    drawCircle(
-                                        color = color.copy(alpha = baseAlpha * (1f - progress)),
-                                        radius = baseR * (0.62f + 1.33f * progress),
-                                        style = Stroke(2.dp.toPx())
+                                val rippleColors = listOf(BrandCyan, BrandPurple, BrandCyan, BrandPurple, BrandCyan)
+                                val rippleAlphas = listOf(0.65f, 0.50f, 0.55f, 0.45f, 0.40f)
+                                val rippleWidths = listOf(2.5f, 1.5f, 2.0f, 1.5f, 1.0f)
+                                listOf(ripple1.value, ripple2.value, ripple3.value, ripple4.value, ripple5.value)
+                                    .forEachIndexed { i, progress ->
+                                        if (progress > 0f) drawCircle(
+                                            color = rippleColors[i].copy(alpha = rippleAlphas[i] * (1f - progress)),
+                                            radius = baseR * (0.62f + 1.38f * progress),
+                                            style = Stroke(rippleWidths[i].dp.toPx())
+                                        )
+                                    }
+                            }
+                            // Radial pulse bars around the orb
+                            Canvas(modifier = Modifier.size(300.dp)) {
+                                val bars = 32
+                                val orbR = 94.dp.toPx()
+                                val t = speakFrame
+                                for (i in 0 until bars) {
+                                    val angle = (i.toFloat() / bars) * 2f * PI.toFloat()
+                                    val wave = sin(t / 380.0 + angle * 2.5).toFloat()
+                                    val barLen = (wave * 0.5f + 0.5f) * 16.dp.toPx() + 4.dp.toPx()
+                                    val alpha = 0.40f + 0.40f * (wave * 0.5f + 0.5f)
+                                    drawLine(
+                                        color = BrandCyan.copy(alpha = alpha),
+                                        start = Offset(center.x + cos(angle) * orbR, center.y + sin(angle) * orbR),
+                                        end   = Offset(center.x + cos(angle) * (orbR + barLen), center.y + sin(angle) * (orbR + barLen)),
+                                        strokeWidth = 2.5.dp.toPx(),
+                                        cap = StrokeCap.Round
                                     )
                                 }
-                                ripple(ripple1.value, 0.60f, BrandCyan)
-                                ripple(ripple2.value, 0.45f, BrandCyan)
-                                ripple(ripple3.value, 0.40f, BrandPurple)
                             }
                         }
 
@@ -336,13 +425,11 @@ fun VoiceModeScreen(
                             modifier = Modifier
                                 .size(180.dp)
                                 .graphicsLayer { scaleX = coreScale; scaleY = coreScale },
-                            isSpeaking = isSpeaking
+                            isSpeaking = isSpeaking,
+                            isListening = isListening,
+                            isProcessing = isProcessing,
+                            segmentPulse = segPulse,
                         )
-
-                        // Waveform bars (listening)
-                        if (isListening) {
-                            WaveformBars(modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 16.dp))
-                        }
                     }
 
                     Spacer(Modifier.height(32.dp))
@@ -401,19 +488,31 @@ fun VoiceModeScreen(
 }
 
 @Composable
-private fun OrbCore(modifier: Modifier, isSpeaking: Boolean) {
+private fun OrbCore(
+    modifier: Modifier,
+    isSpeaking: Boolean,
+    isListening: Boolean,
+    isProcessing: Boolean,
+    segmentPulse: Float,
+) {
+    val segColor = when {
+        isSpeaking   -> BrandCyan
+        isListening  -> BrandCyan
+        isProcessing -> BrandPurple
+        else         -> BrandPurple
+    }
+    val segAlpha = if (isProcessing) segmentPulse else 0.55f
+
     Canvas(modifier = modifier) {
         val r = size.width / 2f
 
-        // Coil segment ring (alternating lit / dim segments around the rim)
+        // Coil segment ring
         val segments = 30
         val sweep = 360f / segments
         for (i in 0 until segments) {
             drawArc(
-                color = if (i % 2 == 0)
-                    (if (isSpeaking) BrandCyan else BrandPurple).copy(alpha = 0.5f)
-                else
-                    Color.White.copy(alpha = 0.05f),
+                color = if (i % 2 == 0) segColor.copy(alpha = segAlpha)
+                        else Color.White.copy(alpha = 0.05f),
                 startAngle = -90f + i * sweep,
                 sweepAngle = sweep * 0.65f,
                 useCenter = false,
@@ -477,31 +576,3 @@ private fun OrbCore(modifier: Modifier, isSpeaking: Boolean) {
     }
 }
 
-@Composable
-private fun WaveformBars(modifier: Modifier = Modifier) {
-    val baseHeights = listOf(16, 30, 46, 24, 52, 20, 42, 28, 50, 22, 34)
-    Row(
-        modifier = modifier.height(56.dp),
-        verticalAlignment = Alignment.Bottom,
-        horizontalArrangement = Arrangement.spacedBy(5.dp)
-    ) {
-        baseHeights.forEachIndexed { i, base ->
-            val inf = rememberInfiniteTransition(label = "bar$i")
-            val scale by inf.animateFloat(
-                0.3f, 1f,
-                infiniteRepeatable(
-                    tween(900, delayMillis = i * 85, easing = FastOutSlowInEasing),
-                    RepeatMode.Reverse
-                ),
-                label = "barH$i"
-            )
-            Box(
-                modifier = Modifier
-                    .width(5.dp)
-                    .height((base * scale).dp)
-                    .clip(RoundedCornerShape(3.dp))
-                    .background(Brush.verticalGradient(listOf(BrandCyan, BrandPurple)))
-            )
-        }
-    }
-}

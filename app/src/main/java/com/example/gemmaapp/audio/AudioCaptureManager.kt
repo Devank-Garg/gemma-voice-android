@@ -5,6 +5,7 @@ import android.content.Context
 import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
+import android.media.audiofx.AcousticEchoCanceler
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -36,12 +37,17 @@ class AudioCaptureManager @Inject constructor(
         if (captureJob?.isActive == true) return
 
         audioRecord = AudioRecord(
-            MediaRecorder.AudioSource.MIC,
+            MediaRecorder.AudioSource.VOICE_COMMUNICATION, // enables hardware AEC/NS on supported devices
             sampleRate,
             AudioFormat.CHANNEL_IN_MONO,
             AudioFormat.ENCODING_PCM_FLOAT,
             minBufferBytes
-        ).also { it.startRecording() }
+        ).also { ar ->
+            if (AcousticEchoCanceler.isAvailable()) {
+                AcousticEchoCanceler.create(ar.audioSessionId)?.enabled = true
+            }
+            ar.startRecording()
+        }
 
         captureJob = scope.launch(Dispatchers.IO) {
             val chunk = FloatArray(chunkSamples)

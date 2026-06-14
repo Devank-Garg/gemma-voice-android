@@ -142,6 +142,7 @@ fun ChatScreen(
                         if (hasPermission) viewModel.startVoiceCapture()
                         else micPermLauncher.launch(Manifest.permission.RECORD_AUDIO)
                     }
+                    VoiceState.SPEAKING -> viewModel.interruptAndListen()
                     else -> viewModel.stopVoiceCapture()
                 }
             },

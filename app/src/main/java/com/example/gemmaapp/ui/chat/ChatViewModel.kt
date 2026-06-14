@@ -59,6 +59,7 @@ class ChatViewModel @Inject constructor(
 
     private var inactivityJob: Job? = null
     private var vadJob: Job? = null
+    private var processingJob: Job? = null
 
     private fun resetInactivityTimer() {
         inactivityJob?.cancel()
@@ -146,7 +147,7 @@ class ChatViewModel @Inject constructor(
         }
     }
 
-    fun startVoiceCapture() {
+    fun startVoiceCapture(autoListen: Boolean = false) {
         vadJob?.cancel()
         resetInactivityTimer()
         // Show LISTENING immediately so the waveform appears while VAD calibrates.
@@ -155,19 +156,19 @@ class ChatViewModel @Inject constructor(
         vadJob = viewModelScope.launch {
             var speechDetected = false
 
-            // If no speech is detected within the timeout, stop and notify the user.
             val noSpeechJob = launch {
                 delay(NO_SPEECH_TIMEOUT_MS)
                 if (!speechDetected) {
                     audioCaptureManager.stopCapture()
-                    val text = "I didn't catch that — could you tap the mic and try again?"
-                    val msg = ChatMessage(
-                        role = ChatMessage.Role.ASSISTANT,
-                        text = text,
-                        isStreaming = false,
-                    )
-                    _uiState.update { it.copy(messages = it.messages + msg, voiceState = VoiceState.IDLE) }
-                    ttsSynthesizer.announce(text)
+                    if (autoListen) {
+                        // Silently go idle — user didn't speak, no need to narrate it
+                        _uiState.update { it.copy(voiceState = VoiceState.IDLE) }
+                    } else {
+                        val text = "I didn't catch that — could you tap the mic and try again?"
+                        val msg = ChatMessage(role = ChatMessage.Role.ASSISTANT, text = text, isStreaming = false)
+                        _uiState.update { it.copy(messages = it.messages + msg, voiceState = VoiceState.IDLE) }
+                        ttsSynthesizer.announce(text)
+                    }
                     vadJob?.cancel()
                 }
             }
@@ -209,6 +210,17 @@ class ChatViewModel @Inject constructor(
         _uiState.update { it.copy(voiceState = VoiceState.IDLE) }
     }
 
+    fun interruptAndListen() {
+        ttsSynthesizer.stop()
+        processingJob?.cancel()
+        processingJob = null
+        vadJob?.cancel()
+        vadJob = null
+        audioCaptureManager.stopCapture()
+        finalizeAllStreamingMessages()
+        startVoiceCapture()
+    }
+
     private fun processVoiceInput(pcm: FloatArray) {
         if (_uiState.value.engineState !is EngineState.Ready) {
             android.util.Log.w("ChatVM", "processVoiceInput: engine not ready, skipping")
@@ -226,7 +238,7 @@ class ChatViewModel @Inject constructor(
         val placeholder = ChatMessage(role = ChatMessage.Role.ASSISTANT, text = "", isStreaming = true)
         _uiState.update { it.copy(messages = it.messages + placeholder, voiceState = VoiceState.PROCESSING) }
 
-        viewModelScope.launch {
+        processingJob = viewModelScope.launch {
             var startMs = 0L   // reset on first token so tok/s excludes audio-processing latency
             var tokenCount = 0
             var accumulated = ""
@@ -235,23 +247,23 @@ class ChatViewModel @Inject constructor(
                 val tokenFlow = engine.sendAudio(pcm)
                     .shareIn(viewModelScope, SharingStarted.Eagerly, replay = 512)
 
-                _uiState.update { it.copy(voiceState = VoiceState.SPEAKING) }
-
                 // Pipe tokens → Android TTS. onDone is the reliable completion signal
                 // because sendMessageAsync never terminates the flow. We finalize the
                 // message here, after all tokens have been queued for TTS playback.
                 launch {
                     ttsSynthesizer.synthesizeAndPlay(tokenFlow) {
                         finalizeAssistantMessage(accumulated, tokenCount, startMs)
-                        _uiState.update { it.copy(voiceState = VoiceState.IDLE) }
+                        startVoiceCapture(autoListen = true) // auto-listen after each response
                     }
                 }
 
-                // Update the chat bubble as tokens arrive. This loop doesn't complete
-                // (sendMessageAsync never closes the stream) but that's OK — finalization
-                // is handled by the TTS onDone callback above.
+                // Flip to SPEAKING on first token — stays PROCESSING until LLM actually
+                // starts generating, so the user sees the right state during TTFT latency.
                 tokenFlow.collect { chunk ->
-                    if (startMs == 0L) startMs = System.currentTimeMillis()
+                    if (startMs == 0L) {
+                        startMs = System.currentTimeMillis()
+                        _uiState.update { it.copy(voiceState = VoiceState.SPEAKING) }
+                    }
                     accumulated += chunk
                     tokenCount++
                     val tps = tokenCount / ((System.currentTimeMillis() - startMs) / 1000f).coerceAtLeast(0.001f)
@@ -312,6 +324,7 @@ class ChatViewModel @Inject constructor(
 
     override fun onCleared() {
         super.onCleared()
+        processingJob?.cancel()
         vadJob?.cancel()
         inactivityJob?.cancel()
         audioCaptureManager.stopCapture()

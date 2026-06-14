@@ -1,39 +1,64 @@
-# J.A.R.V.I.S — Session Handoff (2026-06-13)
+# J.A.R.V.I.S — Session Handoff (2026-06-14)
 
 ## What Was Done This Session
 
-### 1. VoiceModeScreen — Full-Screen Arc-Reactor UI
-New file: `ui/voice/VoiceModeScreen.kt`
+### 1. Interrupt-to-Speak (Tap Only)
+Added `interruptAndListen()` to `ChatViewModel`. When user taps the orb during SPEAKING:
+1. `ttsSynthesizer.stop()` — cuts audio immediately
+2. `processingJob?.cancel()` — cancels token collection coroutine
+3. `finalizeAllStreamingMessages()` — unsticks any streaming bubble
+4. `startVoiceCapture()` — goes straight to LISTENING
 
-Replaces the chat-bubble layout when `isKeyboardMode = false`. Designed from a Claude Design mockup (4-state artboard matching Gemini Live / ChatGPT Voice UX).
+`processingJob: Job?` field added to track the token-collection coroutine so it can be cancelled on interrupt.
 
-**4 animated states (all using `rememberInfiniteTransition`):**
+`ChatScreen.kt` orb tap handler now routes `VoiceState.SPEAKING` specifically to `interruptAndListen()`.
 
-| State | Orb animation | Ring decoration |
+**Barge-in (voice-activated interrupt) was attempted but removed** — self-triggering issue where JARVIS's TTS audio bled into the mic and caused false VAD triggers. Manual tap-to-interrupt is reliable. Can revisit with proper echo-cancellation pipeline later.
+
+### 2. Auto-Listen After Each Response
+After TTS `onDone` fires, instead of going to `VoiceState.IDLE`, the ViewModel calls `startVoiceCapture(autoListen = true)`.
+
+`startVoiceCapture(autoListen: Boolean = false)` — new parameter:
+- `autoListen = false` (explicit tap): 8s no-speech timeout shows "I didn't catch that" message
+- `autoListen = true` (after response): 8s no-speech timeout silently falls back to IDLE, no message
+
+**UX flow:** User taps orb once → speaks → JARVIS answers → automatically back to LISTENING → repeat. Tap orb to stop at any point.
+
+### 3. Acoustic Echo Cancellation
+`AudioCaptureManager.kt`:
+- Changed `AudioSource.MIC` → `AudioSource.VOICE_COMMUNICATION` (enables hardware AEC/NS/AGC on S23)
+- Added `AcousticEchoCanceler.create(ar.audioSessionId)?.enabled = true` after AudioRecord creation
+
+### 4. PROCESSING → SPEAKING Transition Fix
+Previously `voiceState = SPEAKING` was set immediately when `sendAudio` returned the flow — before any tokens existed. The orb showed SPEAKING while JARVIS was silently computing (500–600ms dead time).
+
+**Fix:** Removed the early state update. `voiceState` stays `PROCESSING` until the first token arrives in `tokenFlow.collect`. Transition to SPEAKING now happens on first token — which coincides with TTS starting to queue audio.
+
+```kotlin
+tokenFlow.collect { chunk ->
+    if (startMs == 0L) {
+        startMs = System.currentTimeMillis()
+        _uiState.update { it.copy(voiceState = VoiceState.SPEAKING) }
+    }
+    ...
+}
+```
+
+### 5. VoiceModeScreen — Full Animation Overhaul
+Replaced all per-state visuals in `VoiceModeScreen.kt`:
+
+| State | Before | After |
 |---|---|---|
-| IDLE | Scale 1→1.045 (4s) | Static purple ring + slow drifting cyan arc (9s) |
-| LISTENING | Scale 1→1.07 (2.6s) | Rotating purple→cyan gradient arc (3.6s) + waveform bars |
-| PROCESSING | Scale 1→1.045 (4s) | Dual counter-rotating arcs (2.1s / 1.5s) + 2 orbiting particles |
-| SPEAKING | Scale 1→1.07 (2.6s) | 3 staggered ripple rings (2.6s, delays 0 / 870ms / 1730ms via Animatable) |
+| IDLE | 1 drifting arc | 3 breathing concentric rings (offset phases) + 5 orbiting particles at 3 radii |
+| LISTENING | Rotating arc + bottom bar waveform | Thicker rotating arc (8dp) + 48-bar circular polar waveform (frame-clock `sin()`) |
+| PROCESSING | 2 arcs + 2 particles | 3 arcs + 16-dot rotating ring + 5 particles at varied radii/speeds + pulsing coil segments |
+| SPEAKING | 3 ripple rings | 5 ripple rings (alternating cyan/purple) + 32-bar radial pulse waveform |
 
-**Arc reactor core** (Canvas): coil segments (30 alternating lit/dim arcs), radial gradient fill (purple-dominant or cyan-dominant for SPEAKING), outer glow bloom, two structural rings, bright center highlight.
+`OrbCore` updated to accept `isListening`, `isProcessing`, `segmentPulse` — coil segments pulse during PROCESSING.
 
-**Engine loading guard:** `engineReady: Boolean` parameter. While `EngineState != Ready`, orb tap is disabled and label shows "INITIALIZING…" — prevents silent failures where VAD captures audio but `processVoiceInput` drops it.
+Bottom `WaveformBars` composable removed (replaced by in-orb circular waveform for LISTENING).
 
-**Navigation:** keyboard icon (top-left) → `toggleKeyboardMode()` → switches to text/history mode. Power button → `onEndSession` → navigates back to home.
-
-**Transcript removed** — was showing previous response text during state transitions, creating visual bleed-through. Removed entirely for clean voice-only experience.
-
-### 2. ChatScreen — Compose Anti-Pattern Fix
-The original integration used `if (!isKeyboardMode) { VoiceModeScreen(...); return }`. Early `return` in a `@Composable` is an anti-pattern: Compose's slot table tracks composable calls positionally, and an early return changes the tree shape between recompositions, breaking state observation. This caused `voiceState` changes in the ViewModel to never trigger recomposition — the UI froze on LISTENING.
-
-**Fix:** Changed to `if-else` so both branches are always "declared" and the slot table stays consistent.
-
-### 3. System Prompt — TTS Pronunciation
-`J.A.R.V.I.S.` renamed to `JARVIS` in the system prompt. Android TTS was spelling out individual letters due to the dots. UI labels remain `J.A.R.V.I.S` for the Iron Man aesthetic.
-
-### 4. System Prompt — "Sir" Overuse
-Added explicit constraint: *"Use 'sir' sparingly — only at the very start of a reply when it feels natural, never mid-sentence or repeatedly within the same response. Most replies should have no 'sir' at all."* Previously the model used "sir" in nearly every sentence.
+Frame-clock animation (`withFrameMillis`) drives smooth organic waveforms for LISTENING and SPEAKING states.
 
 ---
 
@@ -41,13 +66,13 @@ Added explicit constraint: *"Use 'sir' sparingly — only at the very start of a
 
 | Feature | Status |
 |---|---|
-| Full-screen voice orb (4 animated states) | ✅ Working |
-| LISTENING → IDLE timeout (8s no-speech) | ✅ Fixed (if-else branch) |
-| Engine loading guard ("INITIALIZING…") | ✅ Working |
-| Keyboard toggle → text/history mode | ✅ Working |
-| TTS pronounces "JARVIS" correctly | ✅ Fixed |
-| "Sir" used sparingly | ✅ Fixed |
-| Interrupt-to-speak mid-TTS | ❌ Not yet implemented |
+| Tap orb → LISTENING | ✅ Working |
+| Speak → PROCESSING → SPEAKING → auto-LISTENING | ✅ Working |
+| Tap orb during SPEAKING → interrupt + LISTENING | ✅ Working |
+| PROCESSING stays until first token (no dead-time) | ✅ Fixed |
+| AEC enabled on VOICE_COMMUNICATION source | ✅ Done |
+| Full animated orb (4 distinct states) | ✅ Enhanced |
+| Voice-activated barge-in | ❌ Removed (echo issue) |
 
 ---
 
@@ -55,48 +80,26 @@ Added explicit constraint: *"Use 'sir' sparingly — only at the very start of a
 
 | File | Change |
 |---|---|
-| `ui/voice/VoiceModeScreen.kt` | **New** — full-screen arc-reactor voice UI |
-| `ui/chat/ChatScreen.kt` | if-else branch for voice/text mode; pass engineReady |
-| `inference/LiteRtLmEngine.kt` | JARVIS pronunciation + "sir" constraint in system prompt |
-| `CHANGELOG.md` | v0.7.0 entry |
+| `ui/chat/ChatViewModel.kt` | `interruptAndListen()`, `processingJob`, `autoListen` param, SPEAKING transition fix, barge-in removed |
+| `ui/chat/ChatScreen.kt` | Orb tap routes SPEAKING → `interruptAndListen()` |
+| `audio/AudioCaptureManager.kt` | VOICE_COMMUNICATION source + AEC |
+| `ui/voice/VoiceModeScreen.kt` | Full animation overhaul — circular waveforms, particles, dotted rings |
 
 ---
 
-## Next: Interrupt-to-Speak
+## Next Candidates
 
-**Goal:** User taps orb (or mic) while JARVIS is speaking → immediately stop TTS, start new voice capture.
+### Barge-in (voice interrupt without tap)
+The reliable way to implement this on Android without hardware echo cancellation issues:
+- Use `AudioEffect` with `NoiseSuppressor` + `AcousticEchoCanceler` on the AudioRecord
+- Or: detect barge-in using **energy delta** — only trigger if mic energy is significantly above the known TTS playback level (requires measuring TTS output level as a reference)
+- Or: use Android's `MediaRecorder.AudioSource.VOICE_COMMUNICATION` with `MODE_IN_COMMUNICATION` audio mode set on `AudioManager` — this enables the full hardware voice processing stack including echo reference
 
-**Implementation plan:**
+### Settings Screen
+- TTS speed/pitch control
+- VAD sensitivity slider
+- Max response length
 
-In `VoiceModeScreen`, the orb tap when `voiceState == SPEAKING` currently calls `viewModel.stopVoiceCapture()`. That stops the VAD but doesn't stop TTS.
-
-The correct flow:
-1. User taps orb during SPEAKING
-2. `ttsSynthesizer.stop()` — cuts audio immediately
-3. `finalizeAllStreamingMessages()` — unstick any streaming message
-4. `voiceState = IDLE` (or go straight to LISTENING)
-5. Start new voice capture
-
-In `ChatViewModel`, add a new method (or modify `stopVoiceCapture`):
-
-```kotlin
-fun interruptAndListen() {
-    // Cancel any in-progress TTS and token collection
-    ttsSynthesizer.stop()
-    vadJob?.cancel()
-    inactivityJob?.cancel()
-    finalizeAllStreamingMessages()
-    _uiState.update { it.copy(voiceState = VoiceState.IDLE) }
-    // Optionally start capture immediately:
-    startVoiceCapture()
-}
-```
-
-In `VoiceModeScreen` / `ChatScreen` orb tap handler:
-```kotlin
-VoiceState.SPEAKING -> viewModel.interruptAndListen()
-```
-
-**Edge case:** The token collection loop (`tokenFlow.collect`) in `processVoiceInput` runs until the ViewModel is cleared. When interrupt fires, the tokenFlow is still collecting and will try to call `patchStreamingMessage`. `finalizeAllStreamingMessages()` unsticks the bubble, but the collect loop should also be cancelled. Currently `processVoiceInput` doesn't track its coroutine — consider adding a `processingJob: Job?` field so it can be cancelled on interrupt.
-
-**LLM context:** Decide whether to `engine.resetConversation()` on interrupt. If not, the partial response stays in the model's KV cache and the next turn may be confused. Safest: reset on interrupt. Trade-off: loses conversation history.
+### Error Recovery
+- Handle LiteRT-LM OOM gracefully (show message, offer to reload)
+- Network-offline detection for model download
