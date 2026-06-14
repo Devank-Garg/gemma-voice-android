@@ -18,6 +18,14 @@ android {
         versionCode = 1
         versionName = "1.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        val braveKey = rootProject.file("local.properties")
+            .takeIf { it.exists() }
+            ?.readLines()
+            ?.firstOrNull { it.startsWith("BRAVE_API_KEY=") }
+            ?.substringAfter("=")
+            .orEmpty()
+        buildConfigField("String", "BRAVE_API_KEY", "\"$braveKey\"")
     }
 
     buildTypes {
@@ -48,6 +56,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
     // Prevent Gradle from compressing model files — corrupts binary format
     androidResources {

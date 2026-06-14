@@ -133,6 +133,7 @@ fun ChatScreen(
         com.example.gemmaapp.ui.voice.VoiceModeScreen(
             voiceState = uiState.voiceState,
             engineReady = uiState.engineState is ChatViewModel.EngineState.Ready,
+            activeTool = uiState.activeTool,
             onOrbTap = {
                 when (uiState.voiceState) {
                     VoiceState.IDLE, VoiceState.ERROR -> {

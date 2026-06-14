@@ -58,6 +58,11 @@ import kotlinx.coroutines.launch
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sin
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameMillis
@@ -67,6 +72,7 @@ import androidx.compose.ui.graphics.StrokeCap
 fun VoiceModeScreen(
     voiceState: VoiceState,
     engineReady: Boolean,
+    activeTool: String? = null,
     onOrbTap: () -> Unit,
     onEndSession: () -> Unit,
     onToggleKeyboard: () -> Unit,
@@ -440,6 +446,8 @@ fun VoiceModeScreen(
                         color = TextMuted,
                         letterSpacing = 3.sp
                     )
+                    Spacer(Modifier.height(16.dp))
+                    ToolPill(activeTool = activeTool)
                 }
             }
 
@@ -573,6 +581,48 @@ private fun OrbCore(
             radius = brightR,
             center = brightCenter
         )
+    }
+}
+
+@Composable
+private fun ToolPill(activeTool: String?) {
+    val inf = rememberInfiniteTransition(label = "toolPill")
+    val pulse by inf.animateFloat(
+        0.5f, 1f,
+        infiniteRepeatable(tween(600, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+        label = "toolPulse"
+    )
+
+    AnimatedVisibility(
+        visible = activeTool != null,
+        enter = slideInVertically(initialOffsetY = { it }) + fadeIn(tween(200)),
+        exit  = slideOutVertically(targetOffsetY = { it }) + fadeOut(tween(200)),
+    ) {
+        Box(
+            modifier = Modifier
+                .clip(RoundedCornerShape(20.dp))
+                .background(CardDark)
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                // Pulsing dot
+                Canvas(modifier = Modifier.size(7.dp)) {
+                    drawCircle(BrandCyan.copy(alpha = pulse * 0.4f), radius = size.width)
+                    drawCircle(BrandCyan.copy(alpha = pulse), radius = size.width / 2.2f)
+                }
+                Text(
+                    text = activeTool ?: "",
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = BrandCyan,
+                    letterSpacing = 2.sp,
+                )
+            }
+        }
     }
 }
 

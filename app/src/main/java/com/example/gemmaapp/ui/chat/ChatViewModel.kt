@@ -52,6 +52,7 @@ class ChatViewModel @Inject constructor(
         val inputText: String = "",
         val isKeyboardMode: Boolean = false,
         val backendLabel: String = "",
+        val activeTool: String? = null,
     )
 
     private val _uiState = MutableStateFlow(UiState())
@@ -81,6 +82,11 @@ class ChatViewModel @Inject constructor(
                         modelRepository.getModelPath()?.let { loadEngine(it) }
                     }
                 }
+            }
+        }
+        viewModelScope.launch {
+            engine.activeTool.collect { tool ->
+                _uiState.update { it.copy(activeTool = tool) }
             }
         }
     }

@@ -60,6 +60,53 @@ Bottom `WaveformBars` composable removed (replaced by in-orb circular waveform f
 
 Frame-clock animation (`withFrameMillis`) drives smooth organic waveforms for LISTENING and SPEAKING states.
 
+### 6. Male TTS Voice
+`AndroidTtsEngine.kt` — Added `selectMaleVoice()` called after `setLanguage`:
+- Prefers offline voices
+- Matches Google TTS male patterns: `-iom-`, `-iog-`, `-iob-`, `-iol-`
+- Matches Samsung TTS male pattern: `SMTm`
+
+### 7. Tool Calling — 5 JARVIS Tools
+New file `inference/JarvisToolSet.kt` implementing `ToolSet` with `@Tool`/`@ToolParam` annotations:
+
+| Tool | Trigger phrase | What it does |
+|---|---|---|
+| `webSearch` | current events, news, weather | Brave Search API, returns top 3 snippets |
+| `getCurrentDateTime` | what time is it | `LocalDateTime.now()` formatted |
+| `getBatteryLevel` | battery status | `BatteryManager` level + charging state |
+| `openApp` | open WhatsApp / Spotify etc. | Queries launcher activities, starts by package |
+| `setAlarm` | set alarm for 7am | `AlarmClock.ACTION_SET_ALARM` intent |
+
+`LiteRtLmEngine.kt`:
+- Injects `OkHttpClient` via Hilt
+- `_activeTool: MutableStateFlow<String?>` — set by `onToolActive` callback during tool execution
+- `automaticToolCalling = true` in `ConversationConfig`
+
+`app/build.gradle.kts`:
+- `buildConfig = true` enabled
+- `BRAVE_API_KEY` read from `local.properties` and embedded as `BuildConfig.BRAVE_API_KEY`
+
+`AndroidManifest.xml` additions:
+- `com.android.alarm.permission.SET_ALARM`
+- `android.permission.QUERY_ALL_PACKAGES` — required on Android 11+ to see all installed apps in `queryIntentActivities`
+
+### 8. Tool Use UI — ToolPill
+`VoiceModeScreen.kt` — `ToolPill` composable shown when `activeTool != null`:
+- `AnimatedVisibility` with slide-up + fade-in/out
+- Pulsing cyan dot (infinite alpha animation)
+- Tool name text in BrandCyan
+
+`ChatViewModel.kt` — `activeTool: String?` added to `UiState`, collected from `engine.activeTool` in `init`.
+
+`ChatScreen.kt` — passes `activeTool = uiState.activeTool` down to `VoiceModeScreen`.
+
+### 9. openApp Fix — Package Visibility
+**Bug:** `getInstalledApplications(0)` didn't return user-installed apps on Android 11+ due to package visibility restrictions.
+
+**Fix:**
+- Switched to `queryIntentActivities(ACTION_MAIN + CATEGORY_LAUNCHER, 0)` — queries the exact same set as the app drawer
+- Added `QUERY_ALL_PACKAGES` permission to manifest — lifts Android 11+ visibility filter
+
 ---
 
 ## Current Working State
@@ -72,6 +119,10 @@ Frame-clock animation (`withFrameMillis`) drives smooth organic waveforms for LI
 | PROCESSING stays until first token (no dead-time) | ✅ Fixed |
 | AEC enabled on VOICE_COMMUNICATION source | ✅ Done |
 | Full animated orb (4 distinct states) | ✅ Enhanced |
+| Male TTS voice | ✅ Working |
+| Tool calling (5 tools) | ✅ Working |
+| Tool use UI (ToolPill overlay) | ✅ Working |
+| openApp — user-installed apps discoverable | ✅ Fixed |
 | Voice-activated barge-in | ❌ Removed (echo issue) |
 
 ---
@@ -80,10 +131,15 @@ Frame-clock animation (`withFrameMillis`) drives smooth organic waveforms for LI
 
 | File | Change |
 |---|---|
-| `ui/chat/ChatViewModel.kt` | `interruptAndListen()`, `processingJob`, `autoListen` param, SPEAKING transition fix, barge-in removed |
-| `ui/chat/ChatScreen.kt` | Orb tap routes SPEAKING → `interruptAndListen()` |
+| `ui/chat/ChatViewModel.kt` | `interruptAndListen()`, `processingJob`, `autoListen` param, SPEAKING transition fix, `activeTool` in UiState |
+| `ui/chat/ChatScreen.kt` | Orb tap routes SPEAKING → `interruptAndListen()`, passes `activeTool` to VoiceModeScreen |
 | `audio/AudioCaptureManager.kt` | VOICE_COMMUNICATION source + AEC |
-| `ui/voice/VoiceModeScreen.kt` | Full animation overhaul — circular waveforms, particles, dotted rings |
+| `ui/voice/VoiceModeScreen.kt` | Full animation overhaul + ToolPill composable |
+| `tts/AndroidTtsEngine.kt` | Male voice selection |
+| `inference/LiteRtLmEngine.kt` | OkHttpClient injection, activeTool StateFlow, tool registration |
+| `inference/JarvisToolSet.kt` | NEW — 5 tools with onToolActive callbacks |
+| `app/build.gradle.kts` | buildConfig=true, BRAVE_API_KEY from local.properties |
+| `app/src/main/AndroidManifest.xml` | SET_ALARM + QUERY_ALL_PACKAGES permissions |
 
 ---
 
@@ -94,6 +150,12 @@ The reliable way to implement this on Android without hardware echo cancellation
 - Use `AudioEffect` with `NoiseSuppressor` + `AcousticEchoCanceler` on the AudioRecord
 - Or: detect barge-in using **energy delta** — only trigger if mic energy is significantly above the known TTS playback level (requires measuring TTS output level as a reference)
 - Or: use Android's `MediaRecorder.AudioSource.VOICE_COMMUNICATION` with `MODE_IN_COMMUNICATION` audio mode set on `AudioManager` — this enables the full hardware voice processing stack including echo reference
+
+### More Tools
+- `sendWhatsAppMessage(contact, message)` — `Intent(Intent.ACTION_SEND)` with WhatsApp package
+- `getCalendarEvents()` — `CalendarContract.Events` query
+- `controlMedia(action)` — `AudioManager` or `MediaSessionManager` for play/pause/skip
+- `setVolume(level)` — `AudioManager.setStreamVolume`
 
 ### Settings Screen
 - TTS speed/pitch control

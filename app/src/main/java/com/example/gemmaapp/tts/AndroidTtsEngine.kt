@@ -45,6 +45,7 @@ class AndroidTtsEngine @Inject constructor(
                     cont.resumeWithException(IllegalStateException("Android TTS: US English not supported"))
                 } else {
                     tts = engine
+                    selectMaleVoice(engine!!)
                     setupProgressListener()
                     Log.i(TAG, "Android TTS ready")
                     cont.resume(Unit)
@@ -98,6 +99,32 @@ class AndroidTtsEngine @Inject constructor(
         tts?.shutdown()
         tts = null
         Log.i(TAG, "shut down")
+    }
+
+    // Picks the best available en-US male voice.
+    // Google TTS male voices: names contain "-iom-", "-iog-", "-iob-", "-iol-"
+    // Samsung TTS male voices: names contain "SMTm" (m = male, f = female)
+    // Falls back to any en-US local voice if no male found.
+    private fun selectMaleVoice(t: TextToSpeech) {
+        val voices = t.voices ?: return
+        val enUs = voices.filter { it.locale.language == "en" && it.locale.country == "US" }
+        if (enUs.isEmpty()) return
+
+        fun isMale(name: String) = name.contains("male", ignoreCase = true)
+            || name.contains("-iom-") || name.contains("-iog-")
+            || name.contains("-iob-") || name.contains("-iol-")
+            || name.contains("SMTm", ignoreCase = false)
+
+        val voice = enUs.filter { !it.isNetworkConnectionRequired }.firstOrNull { isMale(it.name) }
+            ?: enUs.firstOrNull { isMale(it.name) }
+            ?: enUs.firstOrNull { !it.isNetworkConnectionRequired }
+
+        if (voice != null) {
+            t.voice = voice
+            Log.i(TAG, "Voice selected: ${voice.name}")
+        } else {
+            Log.w(TAG, "No suitable male voice found, using default")
+        }
     }
 
     private fun setupProgressListener() {

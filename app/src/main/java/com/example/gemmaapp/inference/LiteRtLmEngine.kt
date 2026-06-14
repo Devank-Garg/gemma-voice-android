@@ -9,11 +9,16 @@ import com.google.ai.edge.litertlm.ConversationConfig
 import com.google.ai.edge.litertlm.Engine
 import com.google.ai.edge.litertlm.EngineConfig
 import com.google.ai.edge.litertlm.SamplerConfig
+import com.google.ai.edge.litertlm.tool
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
+import okhttp3.OkHttpClient
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import javax.inject.Inject
@@ -21,12 +26,16 @@ import javax.inject.Singleton
 
 @Singleton
 class LiteRtLmEngine @Inject constructor(
-    @ApplicationContext private val context: Context
+    @ApplicationContext private val context: Context,
+    private val httpClient: OkHttpClient,
 ) {
     private var engine: Engine? = null
     private var conversation: Conversation? = null
     var activeBackend: String = "CPU"
         private set
+
+    private val _activeTool = MutableStateFlow<String?>(null)
+    val activeTool: StateFlow<String?> = _activeTool.asStateFlow()
 
     suspend fun initialize(modelPath: String) = withContext(Dispatchers.IO) {
         val backend = try {
@@ -105,14 +114,19 @@ class LiteRtLmEngine @Inject constructor(
     private fun buildConversationConfig() = ConversationConfig(
         systemInstruction = Contents.of(
             "You are JARVIS (Just A Rather Very Intelligent System), a highly advanced " +
-            "on-device AI assistant inspired by Iron Man. You are precise, articulate, and " +
-            "occasionally witty. Use 'sir' sparingly — only at the very start of a reply when " +
-            "it feels natural, never mid-sentence or repeatedly within the same response. " +
-            "Most replies should have no 'sir' at all. " +
+            "AI assistant inspired by Iron Man. You are precise, articulate, and occasionally witty. " +
+            "Use 'sir' sparingly — only at the very start of a reply when it feels natural, " +
+            "never mid-sentence or repeatedly within the same response. Most replies should have no 'sir' at all. " +
             "Your responses are spoken aloud, so keep them concise and conversational — " +
-            "no bullet points, no markdown, no long essays. You run entirely on-device " +
-            "with no cloud connectivity. If asked who you are, identify yourself as JARVIS."
+            "no bullet points, no markdown, no long essays. " +
+            "You have access to tools: use webSearch for current events or facts you don't know, " +
+            "getCurrentDateTime for the current time, getBatteryLevel for device battery, " +
+            "openApp to launch apps, setAlarm to set alarms. " +
+            "Use tools silently — do not narrate that you are calling a tool, just use the result naturally. " +
+            "If asked who you are, identify yourself as JARVIS."
         ),
+        tools = listOf(tool(JarvisToolSet(context, httpClient, com.example.gemmaapp.BuildConfig.BRAVE_API_KEY) { _activeTool.value = it })),
+        automaticToolCalling = true,
         samplerConfig = SamplerConfig(topK = 40, topP = 0.95, temperature = 0.8)
     )
 }
